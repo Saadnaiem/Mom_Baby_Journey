@@ -265,40 +265,39 @@ const App: React.FC = () => {
     generatePDFDownloadFlow();
   };
 
-  const generatePDFDownloadFlow = () => {
-    // Load logo image for PDF
-    const img = new Image();
-    img.src = logo;
-    img.onload = () => {
+  const sanitizePdfText = (str: string, fallback: string): string => {
+    if (!str || !str.trim()) return fallback;
+    // Remove any characters that cannot be drawn in standard PDF fonts (e.g. non-ASCII Arabic, cursive, etc.)
+    const clean = str.replace(/[^\x00-\x7F]/g, '').trim();
+    return clean.length > 0 ? clean : fallback;
+  };
+
+  const generatePDFWithoutLogoFallback = () => {
+    try {
       const doc = new jsPDF();
-      
       const themeColor = [6, 78, 59] as const; // Emerald
       const goldColor = [180, 138, 40] as const;
-      
-      // --- HEADER SECTION ---
-      // Logo
-      const logoRatio = img.width / img.height;
-      const logoHeight = 24;
-      const logoWidth = logoHeight * logoRatio;
-      doc.addImage(img, 'PNG', 15, 15, logoWidth, logoHeight);
 
-      // Header Text
-      const textStartX = 15 + logoWidth + 5;
+      // --- HEADER SECTION ---
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(18); 
+      doc.setFontSize(22); 
       doc.setTextColor(...themeColor);
-      doc.text("MOM AND BABY JOURNEY", textStartX, 25);
+      doc.text("DR. SULAIMAN AL HABIB", 15, 25);
+      
+      doc.setFontSize(14);
+      doc.setTextColor(...goldColor);
+      doc.text("MOM AND BABY JOURNEY", 15, 33);
       
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(120, 120, 120);
-      doc.text("PERSONALIZED ESSENTIALS CHECKLIST", textStartX, 32);
+      doc.text("PERSONALIZED ESSENTIALS CHECKLIST", 15, 39);
 
       // User Info Box
-      doc.setFillColor(248, 250, 252); // Light Gray/Blueish background
-      doc.setDrawColor(6, 78, 59); // Emerald border
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(6, 78, 59);
       doc.setLineWidth(0.1);
-      doc.roundedRect(15, 45, 180, 25, 3, 3, 'FD');
+      doc.roundedRect(15, 48, 180, 25, 3, 3, 'FD');
       
       // User Info Content
       doc.setFontSize(9);
@@ -306,31 +305,31 @@ const App: React.FC = () => {
       // Column 1: Prepared For
       doc.setTextColor(...themeColor);
       doc.setFont("helvetica", "bold");
-      doc.text("PREPARED FOR", 25, 54);
+      doc.text("PREPARED FOR", 25, 57);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(0, 0, 0);
-      doc.text(momName || "Valued Customer", 25, 62);
-      if (mrn) doc.text(`MRN: ${mrn}`, 25, 67);
+      doc.text(sanitizePdfText(momName, "Valued Customer"), 25, 65);
+      if (mrn) doc.text(`MRN: ${mrn}`, 25, 70);
       
       // Column 2: Contact
       doc.setTextColor(...themeColor);
       doc.setFont("helvetica", "bold");
-      doc.text("CONTACT DETAILS", 85, 54);
+      doc.text("CONTACT DETAILS", 85, 57);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(0, 0, 0);
-      doc.text(mobileNumber, 85, 62);
-      if (email) doc.text(email, 85, 67);
+      doc.text(sanitizePdfText(mobileNumber, ""), 85, 65);
+      if (email) doc.text(sanitizePdfText(email, ""), 85, 70);
       
       // Column 3: Date
       doc.setTextColor(...themeColor);
       doc.setFont("helvetica", "bold");
-      doc.text("GENERATED ON", 145, 54);
+      doc.text("GENERATED ON", 145, 57);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(0, 0, 0);
-      doc.text(new Date().toLocaleDateString(), 145, 62);
-      doc.text(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 145, 67);
+      doc.text(new Date().toLocaleDateString(), 145, 65);
+      doc.text(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 145, 70);
 
-      let yOffset = 85;
+      let yOffset = 90;
 
       // --- CHECKLIST CONTENT ---
       if (selectedItems.size === 0) {
@@ -338,18 +337,15 @@ const App: React.FC = () => {
          doc.setTextColor(100, 100, 100);
          doc.text("No essentials selected. Please select items to build your checklist.", 105, yOffset, { align: 'center' });
       } else {
-         // Group items by Milestone for better organization
          JOURNEY_DATA.forEach(milestone => {
             const stageItems = milestone.checklist.filter(item => selectedItems.has(item.id));
             
             if (stageItems.length > 0) {
-               // Check if we need a new page for the header + at least one item
                if (yOffset > 250) { 
                  doc.addPage(); 
                  yOffset = 20; 
                }
                
-               // Section Header (Milestone Title)
                doc.setFillColor(...themeColor);
                doc.rect(15, yOffset, 180, 8, 'F');
                doc.setTextColor(255, 255, 255);
@@ -359,30 +355,23 @@ const App: React.FC = () => {
                
                yOffset += 15;
                
-               // Items in this section
                stageItems.forEach(item => {
-                  // Check page break for item
-                  // Estimate height based on description length
                   const descLines = doc.splitTextToSize(item.description, 130);
                   const itemHeight = 10 + (descLines.length * 4) + 5;
                   
                   if (yOffset + itemHeight > 280) { 
                     doc.addPage(); 
                     yOffset = 20; 
-                    // Repeat section header on new page? Optional, but good for context.
-                    // Simplified header for continuation
                     doc.setFontSize(8);
                     doc.setTextColor(150, 150, 150);
                     doc.text(`(Continuation: ${milestone.title})`, 15, yOffset - 5);
                   }
                   
-                  // Item Name
                   doc.setTextColor(0, 0, 0);
                   doc.setFontSize(11);
                   doc.setFont("helvetica", "bold");
                   doc.text(item.name, 25, yOffset);
                   
-                  // Category Badge (Right aligned)
                   doc.setFillColor(240, 240, 240);
                   doc.setDrawColor(200, 200, 200);
                   doc.roundedRect(155, yOffset - 4, 40, 6, 2, 2, 'FD');
@@ -390,27 +379,23 @@ const App: React.FC = () => {
                   doc.setFontSize(7);
                   doc.text(item.category.toUpperCase(), 175, yOffset, { align: 'center' });
                   
-                  // Checkbox Icon (Visual - Empty for manual check)
                   doc.setDrawColor(...themeColor);
                   doc.setLineWidth(0.5);
                   doc.rect(16, yOffset - 3, 4, 4);
                   
-                  // Description
                   yOffset += 5;
                   doc.setTextColor(80, 80, 80);
                   doc.setFontSize(9);
                   doc.setFont("helvetica", "normal");
                   doc.text(descLines, 25, yOffset);
                   
-                  // Spacing for next item
                   yOffset += (descLines.length * 4) + 8;
                   
-                  // Light separator line
                   doc.setDrawColor(230, 230, 230);
                   doc.line(25, yOffset - 4, 195, yOffset - 4);
                });
                
-               yOffset += 5; // Extra gap after group
+               yOffset += 5; 
             }
          });
       }
@@ -419,22 +404,199 @@ const App: React.FC = () => {
       const totalPages = (doc as any).internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
-        
-        // Footer Logo
-        const footerLogoHeight = 10;
-        const footerLogoWidth = footerLogoHeight * logoRatio;
-        doc.addImage(img, 'PNG', 15, 282, footerLogoWidth, footerLogoHeight);
-
-        // Footer Text
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
         doc.text("Dr. Sulaiman Al Habib Medical Group", 105, 286, { align: 'center' });
         doc.text("Mom & Baby Journey Essentials", 105, 290, { align: 'center' });
-        
         doc.text(`Page ${i} of ${totalPages}`, 195, 290, { align: 'right' });
       }
       
       doc.save(`Al-Habib-Journey-${mobileNumber}.pdf`);
+    } catch (err) {
+      console.error("Critical fallback PDF generation failed:", err);
+    }
+  };
+
+  const generatePDFDownloadFlow = () => {
+    // Load logo image for PDF
+    const img = new Image();
+    img.src = logo;
+    img.onload = () => {
+      try {
+        const doc = new jsPDF();
+        
+        const themeColor = [6, 78, 59] as const; // Emerald
+        const goldColor = [180, 138, 40] as const;
+        
+        // --- HEADER SECTION ---
+        // Logo
+        const logoRatio = img.width / img.height;
+        const logoHeight = 24;
+        const logoWidth = logoHeight * logoRatio;
+        doc.addImage(img, 'PNG', 15, 15, logoWidth, logoHeight);
+
+        // Header Text
+        const textStartX = 15 + logoWidth + 5;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18); 
+        doc.setTextColor(...themeColor);
+        doc.text("MOM AND BABY JOURNEY", textStartX, 25);
+        
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(120, 120, 120);
+        doc.text("PERSONALIZED ESSENTIALS CHECKLIST", textStartX, 32);
+
+        // User Info Box
+        doc.setFillColor(248, 250, 252); // Light Gray/Blueish background
+        doc.setDrawColor(6, 78, 59); // Emerald border
+        doc.setLineWidth(0.1);
+        doc.roundedRect(15, 45, 180, 25, 3, 3, 'FD');
+        
+        // User Info Content
+        doc.setFontSize(9);
+        
+        // Column 1: Prepared For
+        doc.setTextColor(...themeColor);
+        doc.setFont("helvetica", "bold");
+        doc.text("PREPARED FOR", 25, 54);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(0, 0, 0);
+        doc.text(sanitizePdfText(momName, "Valued Customer"), 25, 62);
+        if (mrn) doc.text(`MRN: ${mrn}`, 25, 67);
+        
+        // Column 2: Contact
+        doc.setTextColor(...themeColor);
+        doc.setFont("helvetica", "bold");
+        doc.text("CONTACT DETAILS", 85, 54);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(0, 0, 0);
+        doc.text(sanitizePdfText(mobileNumber, ""), 85, 62);
+        if (email) doc.text(sanitizePdfText(email, ""), 85, 67);
+        
+        // Column 3: Date
+        doc.setTextColor(...themeColor);
+        doc.setFont("helvetica", "bold");
+        doc.text("GENERATED ON", 145, 54);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(0, 0, 0);
+        doc.text(new Date().toLocaleDateString(), 145, 62);
+        doc.text(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 145, 67);
+
+        let yOffset = 85;
+
+        // --- CHECKLIST CONTENT ---
+        if (selectedItems.size === 0) {
+           doc.setFontSize(12);
+           doc.setTextColor(100, 100, 100);
+           doc.text("No essentials selected. Please select items to build your checklist.", 105, yOffset, { align: 'center' });
+        } else {
+           // Group items by Milestone for better organization
+           JOURNEY_DATA.forEach(milestone => {
+              const stageItems = milestone.checklist.filter(item => selectedItems.has(item.id));
+              
+              if (stageItems.length > 0) {
+                 // Check if we need a new page for the header + at least one item
+                 if (yOffset > 250) { 
+                   doc.addPage(); 
+                   yOffset = 20; 
+                 }
+                 
+                 // Section Header (Milestone Title)
+                 doc.setFillColor(...themeColor);
+                 doc.rect(15, yOffset, 180, 8, 'F');
+                 doc.setTextColor(255, 255, 255);
+                 doc.setFont("helvetica", "bold");
+                 doc.setFontSize(10);
+                 doc.text(`STAGE: ${milestone.title.toUpperCase()}`, 20, yOffset + 5.5);
+                 
+                 yOffset += 15;
+                 
+                 // Items in this section
+                 stageItems.forEach(item => {
+                    // Check page break for item
+                    // Estimate height based on description length
+                    const descLines = doc.splitTextToSize(item.description, 130);
+                    const itemHeight = 10 + (descLines.length * 4) + 5;
+                    
+                    if (yOffset + itemHeight > 280) { 
+                      doc.addPage(); 
+                      yOffset = 20; 
+                      // Repeat section header on new page? Optional, but good for context.
+                      // Simplified header for continuation
+                      doc.setFontSize(8);
+                      doc.setTextColor(150, 150, 150);
+                      doc.text(`(Continuation: ${milestone.title})`, 15, yOffset - 5);
+                    }
+                    
+                    // Item Name
+                    doc.setTextColor(0, 0, 0);
+                    doc.setFontSize(11);
+                    doc.setFont("helvetica", "bold");
+                    doc.text(item.name, 25, yOffset);
+                    
+                    // Category Badge (Right aligned)
+                    doc.setFillColor(240, 240, 240);
+                    doc.setDrawColor(200, 200, 200);
+                    doc.roundedRect(155, yOffset - 4, 40, 6, 2, 2, 'FD');
+                    doc.setTextColor(...themeColor);
+                    doc.setFontSize(7);
+                    doc.text(item.category.toUpperCase(), 175, yOffset, { align: 'center' });
+                    
+                    // Checkbox Icon (Visual - Empty for manual check)
+                    doc.setDrawColor(...themeColor);
+                    doc.setLineWidth(0.5);
+                    doc.rect(16, yOffset - 3, 4, 4);
+                    
+                    // Description
+                    yOffset += 5;
+                    doc.setTextColor(80, 80, 80);
+                    doc.setFontSize(9);
+                    doc.setFont("helvetica", "normal");
+                    doc.text(descLines, 25, yOffset);
+                    
+                    // Spacing for next item
+                    yOffset += (descLines.length * 4) + 8;
+                    
+                    // Light separator line
+                    doc.setDrawColor(230, 230, 230);
+                    doc.line(25, yOffset - 4, 195, yOffset - 4);
+                 });
+                 
+                 yOffset += 5; // Extra gap after group
+              }
+           });
+        }
+
+        // --- FOOTER ---
+        const totalPages = (doc as any).internal.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+          doc.setPage(i);
+          
+          // Footer Logo
+          const footerLogoHeight = 10;
+          const footerLogoWidth = footerLogoHeight * logoRatio;
+          doc.addImage(img, 'PNG', 15, 282, footerLogoWidth, footerLogoHeight);
+
+          // Footer Text
+          doc.setFontSize(8);
+          doc.setTextColor(150, 150, 150);
+          doc.text("Dr. Sulaiman Al Habib Medical Group", 105, 286, { align: 'center' });
+          doc.text("Mom & Baby Journey Essentials", 105, 290, { align: 'center' });
+          
+          doc.text(`Page ${i} of ${totalPages}`, 195, 290, { align: 'right' });
+        }
+        
+        doc.save(`Al-Habib-Journey-${mobileNumber}.pdf`);
+      } catch (err) {
+        console.error("PDF generation with logo loaded exception:", err);
+        generatePDFWithoutLogoFallback();
+      }
+    };
+
+    img.onerror = (err) => {
+      console.warn("Failed to load logo image, executing logo-free PDF fallback:", err);
+      generatePDFWithoutLogoFallback();
     };
   };
 
