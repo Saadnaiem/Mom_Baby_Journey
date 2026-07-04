@@ -31,6 +31,8 @@ export const AdminPortal: React.FC = () => {
   const [startDateStr, setStartDateStr] = useState('');
   const [endDateStr, setEndDateStr] = useState('');
 
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD || 'habib2026';
@@ -47,8 +49,10 @@ export const AdminPortal: React.FC = () => {
   };
 
   const fetchLeads = async () => {
+    setFetchError(null);
     if (!supabaseUrl || !supabaseKey) {
       console.error("Supabase config is missing");
+      setFetchError("Supabase configuration environment variables are missing on the server.");
       return;
     }
     setLoading(true);
@@ -65,10 +69,13 @@ export const AdminPortal: React.FC = () => {
         const data = await response.json();
         setLeads(data);
       } else {
-        console.error("Failed to fetch leads");
+        const errText = await response.text();
+        console.error("Failed to fetch leads:", errText);
+        setFetchError(`Database API returned error (${response.status}): ${errText || response.statusText}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error communicating with database:", err);
+      setFetchError(`Network error communicating with database: ${err.message || err}`);
     } finally {
       setLoading(false);
     }
@@ -297,6 +304,19 @@ export const AdminPortal: React.FC = () => {
           </div>
 
           {/* Metrics Row (Moved below filters, so it calculates based on current active filters!) */}
+          {fetchError && (
+            <div className="bg-red-50 border border-red-100 text-red-700 p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center gap-3 text-sm font-semibold transition-all">
+              <span className="font-extrabold uppercase text-[10px] tracking-wider bg-red-100 text-red-800 px-3 py-1 rounded-md shrink-0">FETCH ERROR</span>
+              <p className="flex-1">{fetchError}</p>
+              <button 
+                onClick={fetchLeads} 
+                className="text-xs bg-red-100 hover:bg-red-200 text-red-800 py-1.5 px-4 rounded-xl font-bold uppercase transition-all"
+              >
+                Retry Request
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="bg-white border border-emerald-100/40 p-6 rounded-3xl shadow-sm space-y-1">
               <span className="text-[10px] font-bold text-emerald-950/40 uppercase tracking-widest block">Total Registrations (Filtered)</span>
