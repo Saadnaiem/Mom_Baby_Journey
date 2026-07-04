@@ -17,8 +17,7 @@ create table leads (
   selected_items text[], -- Saves the product identifiers selected
   stage text, -- Current stage ID the lead was interested in
   language text, -- Language selection ("en" or "ar")
-  city text default 'Riyadh', -- Approximate City
-  exact_address text -- Specific Landmark Address or Hospital name
+  city text default 'Riyadh' -- Approximate City
 );
 
 -- Turn off Row Level Security (RLS) for public presentation/submission

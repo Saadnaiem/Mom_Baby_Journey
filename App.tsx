@@ -48,10 +48,6 @@ const App: React.FC = () => {
 
   // Location / Geolocation state
   const [city, setCity] = useState<string>('');
-  const [exactAddress, setExactAddress] = useState<string>('');
-  const [showLocationModal, setShowLocationModal] = useState(false);
-  const [isLocating, setIsLocating] = useState(false);
-  const [locationError, setLocationError] = useState<string>('');
 
   // Background silence IP lookup for City
   useEffect(() => {
@@ -112,19 +108,13 @@ const App: React.FC = () => {
     }
     setShowError(false);
 
-    // Save lead IMMEDIATELY first to guarantee capture, even if location loading is slow or fails
+    // Save lead IMMEDIATELY to guarantee capture
     sendLeadToDatabase();
-
-    // If exact address is not collected yet, trigger location popup and hold PDF till decision
-    if (!exactAddress && !showLocationModal) {
-      setShowLocationModal(true);
-      return;
-    }
 
     generatePDFDownloadFlow();
   };
 
-  const sendLeadToDatabase = (forcedAddress?: string, retryWithoutNewFields = false) => {
+  const sendLeadToDatabase = (retryWithoutNewFields = false) => {
     // Convert mrn value strictly to number if present
     const numericMrn = mrn ? parseFloat(mrn) : null;
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -149,7 +139,7 @@ const App: React.FC = () => {
           stage: activeStage,
           language: lang,
           city: city || 'Riyadh',
-          exact_address: forcedAddress !== undefined ? forcedAddress : (exactAddress || null)
+          exact_address: null
         };
 
         // Fire and forget without holding back the user flow - fully non-blocking!
@@ -173,7 +163,7 @@ const App: React.FC = () => {
             console.error(`Supabase Submission Failed (Status ${res.status}):`, errDetails);
             if (!retryWithoutNewFields) {
               console.warn("Retrying submission with default database columns fallback...");
-              sendLeadToDatabase(forcedAddress, true);
+              sendLeadToDatabase(true);
             }
           } else {
             console.log("Lead successfully stored in Supabase!");
@@ -182,89 +172,13 @@ const App: React.FC = () => {
           clearTimeout(timeoutId);
           console.error("Network error communicating with Supabase:", err);
           if (!retryWithoutNewFields) {
-            sendLeadToDatabase(forcedAddress, true);
+            sendLeadToDatabase(true);
           }
         });
       } catch (e) {
         console.error("Database connection exception:", e);
       }
     }
-  };
-
-  const handleFetchExactLocation = () => {
-    if (!navigator.geolocation) {
-      const fallbackMsg = "Coordinates service unavailable";
-      setExactAddress(fallbackMsg);
-      setShowLocationModal(false);
-      sendLeadForced(fallbackMsg);
-      return;
-    }
-
-    setIsLocating(true);
-    setLocationError('');
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        try {
-          // Perform premium free reverse-geocoding via OpenStreetMap Nominatim
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`, {
-            headers: {
-              'Accept-Language': lang // fetch in matching user language perspective
-            }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const addr = data.address || {};
-            
-            // Extract highly specific building/hospital names first
-            const buildingOrHospitalName = addr.hospital || addr.amenity || addr.building || addr.healthcare || addr.office || addr.shop || addr.hotel;
-            const roadName = addr.road || '';
-            const district = addr.suburb || addr.neighbourhood || addr.city_district || '';
-            const cityName = addr.city || addr.town || addr.village || 'Riyadh';
-            
-            let displayName = '';
-            if (buildingOrHospitalName) {
-              // Highlight the specific building (e.g., Dr. Sulaiman Al Habib Hospital) followed by district/city
-              displayName = buildingOrHospitalName;
-              if (district) {
-                displayName += ` (${district})`;
-              } else if (cityName) {
-                displayName += ` - ${cityName}`;
-              }
-            } else {
-              // Fallback to standard street address if no specific landmark/building is found
-              const streetDesc = roadName && district ? `${roadName}, ${district}` : (roadName || district || '');
-              displayName = streetDesc ? `${streetDesc} - ${cityName}` : (data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
-            }
-
-            setExactAddress(displayName);
-            setShowLocationModal(false);
-            sendLeadForced(displayName);
-          } else {
-            throw new Error();
-          }
-        } catch {
-          const fallbackCoords = `Coords: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-          setExactAddress(fallbackCoords);
-          setShowLocationModal(false);
-          sendLeadForced(fallbackCoords);
-        } finally {
-          setIsLocating(false);
-        }
-      },
-      (err) => {
-        setIsLocating(false);
-        // Do NOT close the modal, and do NOT download the file until permission is successfully provided!
-        setLocationError(t.locationRequired);
-      },
-      { timeout: 7000 }
-    );
-  };
-
-  const sendLeadForced = (forcedAddress: string) => {
-    // We send payload asynchronously so we NEVER block the PDF generation
-    sendLeadToDatabase(forcedAddress);
-    generatePDFDownloadFlow();
   };
 
   const sanitizePdfText = (str: string, fallback: string): string => {
@@ -833,9 +747,9 @@ const App: React.FC = () => {
         <div className="flex items-center justify-between mb-12">
           <button 
             onClick={() => setViewMode('home')}
-            className={`flex items-center gap-2 text-[#E52B1E] font-bold uppercase tracking-widest text-xs hover:opacity-80 transition-all ${isRTL ? 'flex-row-reverse' : ''}`}
+            className={`flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-full font-bold uppercase tracking-widest text-xs transition-all shadow-lg shadow-red-600/10 active:scale-95 ${isRTL ? 'flex-row-reverse' : ''}`}
           >
-            {isRTL ? <ChevronRight size={20} className="text-[#E52B1E]" /> : <ChevronLeft size={20} className="text-[#E52B1E]" />} 
+            {isRTL ? <ChevronRight size={16} className="text-white" /> : <ChevronLeft size={16} className="text-white" />} 
             <span className="font-extrabold">{t.backToOverview}</span>
           </button>
 
@@ -918,9 +832,18 @@ const App: React.FC = () => {
 
           {/* Checklist */}
           <div className="lg:col-span-8">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
-              <h3 className="text-4xl font-serif font-bold gold-gradient-text italic rtl:font-sans rtl:not-italic">{t.essentialsTitle}</h3>
-              <div className="bg-emerald text-white px-6 py-2 rounded-full flex items-center gap-3 shadow-lg shadow-emerald-900/10 border border-emerald-400/30">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-12">
+              <div className="flex flex-wrap items-center gap-4">
+                <h3 className="text-4xl font-serif font-bold gold-gradient-text italic rtl:font-sans rtl:not-italic">{t.essentialsTitle}</h3>
+                <button
+                  onClick={downloadPDF}
+                  className="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-full flex items-center gap-2.5 transition-all font-black text-xs uppercase tracking-widest shadow-lg shadow-red-600/10 whitespace-nowrap active:scale-95 shrink-0"
+                >
+                  <Printer size={14} />
+                  <span>{t.exportList} ({selectedItems.size})</span>
+                </button>
+              </div>
+              <div className="bg-emerald text-white px-6 py-2 rounded-full flex items-center gap-3 shadow-lg shadow-emerald-900/10 border border-emerald-400/30 w-fit">
                  <span className="w-2 h-2 rounded-full bg-emerald-bright animate-pulse"></span>
                  <span className="text-xs font-black uppercase tracking-widest">
                   {currentMilestone.checklist.length} {t.productsAvailable}
@@ -974,12 +897,12 @@ const App: React.FC = () => {
       {/* Mobile Portal Modal */}
       {showQR && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md" onClick={() => setShowQR(false)}>
-          <div className="bg-white p-12 rounded-[4rem] shadow-2xl max-w-sm w-full text-center" onClick={e => e.stopPropagation()}>
+          <div className="bg-white p-10 md:p-12 rounded-[4rem] shadow-2xl max-w-lg w-full text-center" onClick={e => e.stopPropagation()}>
             <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-8 text-emerald-900">
               <QrCode size={40} />
             </div>
-            <h3 className="text-3xl font-serif font-bold mb-4 text-emerald-dark rtl:font-sans">{t.mobileAccess}</h3>
-            <p className="text-emerald-900/60 mb-10 text-sm leading-relaxed font-light italic">{t.mobileSync}</p>
+            <h3 className="text-2xl md:text-3xl font-serif font-bold mb-4 text-emerald-dark leading-snug rtl:font-sans">{t.mobileAccess}</h3>
+            <p className="text-emerald-900/80 mb-10 text-sm md:text-base leading-relaxed font-semibold italic">{t.mobileSync}</p>
             
             <div className="bg-white p-8 border border-gray-100 rounded-[3rem] inline-block mb-10">
               <QRCodeSVG value={window.location.href} size={200} level="H" includeMargin={false} fgColor="#064e3b" />
@@ -1000,46 +923,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Geolocation Pre-Permission Card */}
-      {showLocationModal && (
-        <div className="fixed inset-0 bg-emerald-950/40 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-white p-8 md:p-12 rounded-[3.5rem] border border-emerald-100/50 shadow-2xl shadow-emerald-900/20 max-w-md w-full text-center space-y-6">
-            <div className="w-16 h-16 bg-emerald-50 text-emerald-900 rounded-2xl flex items-center justify-center mx-auto text-center">
-              <Map size={32} />
-            </div>
-            <h3 className="text-2xl font-serif font-extrabold text-emerald-950 tracking-tight leading-snug">
-              {t.findNearestBranchTitle}
-            </h3>
-            <p className="text-sm text-emerald-900/60 leading-relaxed font-serif italic">
-              {t.findNearestBranchDesc}
-            </p>
-
-            {locationError && (
-              <div className="bg-red-50 text-red-600 text-xs font-bold p-3.5 rounded-2xl border border-red-100/60 transition-all flex items-center justify-center gap-2">
-                <AlertCircle size={14} />
-                <span>{locationError}</span>
-              </div>
-            )}
-            
-            <div className="pt-2">
-              <button
-                onClick={handleFetchExactLocation}
-                disabled={isLocating}
-                className="w-full py-4 bg-emerald-900 text-white font-bold rounded-2xl hover:bg-emerald-950 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2"
-              >
-                {isLocating ? (
-                  <>
-                    <RefreshCw className="animate-spin" size={14} />
-                    <span>Locating...</span>
-                  </>
-                ) : (
-                  <span>{t.allowLocation}</span>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Geolocation Pre-Permission Card removed */}
 
       {/* Footer */}
       <footer className="bg-emerald-900 text-white py-16 px-8 mt-20 border-t border-emerald-800">

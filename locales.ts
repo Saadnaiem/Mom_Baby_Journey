@@ -29,8 +29,8 @@ export const translations = {
     productsAvailable: "Products Available",
     
     // New additions
-    mobileAccess: "Mobile Access",
-    mobileSync: "Sync your curated checklist for fast in-branch pharmacy fulfillment.",
+    mobileAccess: "Discover What You and Your Baby Need at Every Stage",
+    mobileSync: "Our experts have designed a personalized Mom & Baby Journey to help you discover the right healthcare services, products, and support for your current stage of motherhood.",
     copyLink: "Copy Access Link", 
     linkCopied: "Link Copied",
     footerQuote: "Your journey's trusted partner, caring for you and your precious baby.",
@@ -73,8 +73,8 @@ export const translations = {
     productsAvailable: "منتج متوفر",
 
     // New additions
-    mobileAccess: "الدخول عبر الجوال",
-    mobileSync: "قم بمزامنة قائمتك المخصصة لسرعة التسليم والتجهيز في صيدلية الحبيب.",
+    mobileAccess: "اكتشفي ما تحتاجينه أنتِ وطفلكِ في كل مرحلة",
+    mobileSync: "صمم خبراؤنا رحلة الأم والطفل لمساعدتكِ على اكتشاف الخدمات الصحية والمنتجات والدعم المناسب لكل مرحلة من مراحل أمومتكِ.",
     copyLink: "نسخ الرابط",
     linkCopied: "تم النسخ",
     footerQuote: "الشريك الموثوق في رحلتكِ، نرعاكِ ونرعى طفلكِ الغالي.",
