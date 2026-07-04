@@ -112,13 +112,15 @@ const App: React.FC = () => {
     }
     setShowError(false);
 
-    // If exact name is not collected yet (but user allowed / denied), trigger location popup
+    // Save lead IMMEDIATELY first to guarantee capture, even if location loading is slow or fails
+    sendLeadToDatabase();
+
+    // If exact address is not collected yet, trigger location popup and hold PDF till decision
     if (!exactAddress && !showLocationModal) {
       setShowLocationModal(true);
       return;
     }
 
-    sendLeadToDatabase();
     generatePDFDownloadFlow();
   };
 
