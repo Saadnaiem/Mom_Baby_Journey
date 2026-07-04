@@ -328,6 +328,14 @@ const App: React.FC = () => {
       }
       
       doc.save(`Al-Habib-Journey-${mobileNumber}.pdf`);
+      
+      // Reset selected items and customer details after successful generation
+      setSelectedItems(new Set());
+      setMomName('');
+      setMobileNumber('');
+      setEmail('');
+      setMrn('');
+      setViewMode('home');
     } catch (err) {
       console.error("Critical fallback PDF generation failed:", err);
     }
@@ -504,6 +512,14 @@ const App: React.FC = () => {
         }
         
         doc.save(`Al-Habib-Journey-${mobileNumber}.pdf`);
+        
+        // Reset selected items and customer details after successful generation
+        setSelectedItems(new Set());
+        setMomName('');
+        setMobileNumber('');
+        setEmail('');
+        setMrn('');
+        setViewMode('home');
       } catch (err) {
         console.error("PDF generation with logo loaded exception:", err);
         generatePDFWithoutLogoFallback();
