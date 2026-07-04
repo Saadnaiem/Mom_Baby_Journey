@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Al Habib Pharmacy - Mom & Baby Journey</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;0,800;1,400;1,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,700;0,800;1,400;1,700&display=swap" rel="stylesheet">
     <style>
       :root {
         --emerald-primary: #022c22; /* Very deep emerald */
@@ -16,10 +16,10 @@
         --luxury-gold: #b48a28; /* Deep metallic gold */
         --luxury-gold-shine: #fcd34d; /* Bright gold highlight */
         --luxury-white: #ffffff;
-        --cream-bg: #fdfbf7; /* Premium paper feel */
+        --cream-bg: #faf8f5; /* Premium paper feel */
       }
       body {
-        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-family: 'Playfair Display', 'Cairo', 'Plus Jakarta Sans', sans-serif;
         background-color: var(--cream-bg);
         color: var(--emerald-text);
         overflow-x: hidden;
@@ -27,6 +27,18 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         text-rendering: optimizeLegibility;
+      }
+      /* Apply Cairo to all headings and body copy in RTL */
+      html[dir="rtl"] body,
+      html[dir="rtl"] .font-serif,
+      html[dir="rtl"] .font-sans,
+      html[dir="rtl"] h1,
+      html[dir="rtl"] h2,
+      html[dir="rtl"] h3,
+      html[dir="rtl"] h4,
+      html[dir="rtl"] h5,
+      html[dir="rtl"] h6 {
+        font-family: 'Cairo', sans-serif !important;
       }
       .font-serif {
         font-family: 'Playfair Display', serif;
@@ -46,6 +58,7 @@
       .shiny-text {
         background: linear-gradient(120deg, var(--emerald-primary) 0%, var(--emerald-secondary) 40%, var(--emerald-primary) 80%);
         -webkit-background-clip: text;
+        background-clip: text;
         -webkit-text-fill-color: transparent;
         background-size: 200% auto;
         animation: shine-slow 8s linear infinite;
@@ -55,6 +68,7 @@
       .gold-gradient-text {
         background: linear-gradient(to right, #b48a28, #fcd34d, #b48a28);
         -webkit-background-clip: text;
+        background-clip: text;
         -webkit-text-fill-color: transparent;
         background-size: 200% auto;
         animation: shine 4s linear infinite;

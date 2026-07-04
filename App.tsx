@@ -1,8 +1,12 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { jsPDF } from 'jspdf';
 import logo from './logo.png';
+import hmgLogo from './hmg.png';
+import mepLogo from './mep.png';
+import logoHMG from './logo HMG.png';
+import webCoverImg from './web cover image.png';
 import { 
   CheckCircle, 
   QrCode, 
@@ -25,10 +29,11 @@ import {
 import { JOURNEY_DATA, JOURNEY_DATA_AR } from './constants';
 import { MilestoneId } from './types';
 import { translations } from './locales';
+import { AdminPortal } from './AdminPortal';
 
 const App: React.FC = () => {
   const [lang, setLang] = useState<'en' | 'ar'>('en');
-  const [viewMode, setViewMode] = useState<'home' | 'details'>('home');
+  const [viewMode, setViewMode] = useState<'home' | 'details' | 'admin'>('home');
   const [activeStage, setActiveStage] = useState<MilestoneId>(MilestoneId.PRE_PREGNANCY);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [showQR, setShowQR] = useState(false);
@@ -38,7 +43,47 @@ const App: React.FC = () => {
   const [momName, setMomName] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
   const [email, setEmail] = useState('');
+  const [mrn, setMrn] = useState('');
   const [showError, setShowError] = useState(false);
+
+  // Location / Geolocation state
+  const [city, setCity] = useState<string>('');
+  const [exactAddress, setExactAddress] = useState<string>('');
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string>('');
+
+  // Background silence IP lookup for City
+  useEffect(() => {
+    fetch('https://ipapi.co/json/')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.city) {
+          setCity(data.city);
+        }
+      })
+      .catch(() => {
+        // Fallback silently if blocked/offline
+        setCity('Riyadh');
+      });
+  }, []);
+
+  // Hash-routing logic to detect admin portal view
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.hash === '#admin') {
+        setViewMode('admin');
+      } else {
+        setViewMode('home');
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    // Initial load check
+    handleHashChange();
+
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   const t = translations[lang];
   const isRTL = lang === 'ar';
@@ -55,7 +100,7 @@ const App: React.FC = () => {
     setSelectedItems(newSelected);
   };
 
-  const downloadPDF = () => {
+  const downloadPDF = async () => {
     if (!mobileNumber.trim()) {
       setShowError(true);
       setViewMode('home');
@@ -67,6 +112,160 @@ const App: React.FC = () => {
     }
     setShowError(false);
 
+    // If exact name is not collected yet (but user allowed / denied), trigger location popup
+    if (!exactAddress && !showLocationModal) {
+      setShowLocationModal(true);
+      return;
+    }
+
+    sendLeadToDatabase();
+    generatePDFDownloadFlow();
+  };
+
+  const sendLeadToDatabase = (forcedAddress?: string, retryWithoutNewFields = false) => {
+    // Convert mrn value strictly to number if present
+    const numericMrn = mrn ? parseFloat(mrn) : null;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    if (supabaseUrl && supabaseKey) {
+      try {
+        const payload: any = retryWithoutNewFields ? {
+          name: momName || null,
+          mobile_number: mobileNumber,
+          email: email || null,
+          selected_items_count: selectedItems.size,
+          selected_items: Array.from(selectedItems),
+          stage: activeStage,
+          language: lang
+        } : {
+          name: momName || null,
+          mobile_number: mobileNumber,
+          email: email || null,
+          mrn: numericMrn,
+          selected_items_count: selectedItems.size,
+          selected_items: Array.from(selectedItems),
+          stage: activeStage,
+          language: lang,
+          city: city || 'Riyadh',
+          exact_address: forcedAddress !== undefined ? forcedAddress : (exactAddress || null)
+        };
+
+        // Fire and forget without holding back the user flow - fully non-blocking!
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+        fetch(`${supabaseUrl}/rest/v1/leads`, {
+          method: 'POST',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal' // Keep payload roundtrip small for instant execution
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        }).then(async (res) => {
+          clearTimeout(timeoutId);
+          if (!res.ok) {
+            const errDetails = await res.text();
+            console.error(`Supabase Submission Failed (Status ${res.status}):`, errDetails);
+            if (!retryWithoutNewFields) {
+              console.warn("Retrying submission with default database columns fallback...");
+              sendLeadToDatabase(forcedAddress, true);
+            }
+          } else {
+            console.log("Lead successfully stored in Supabase!");
+          }
+        }).catch(err => {
+          clearTimeout(timeoutId);
+          console.error("Network error communicating with Supabase:", err);
+          if (!retryWithoutNewFields) {
+            sendLeadToDatabase(forcedAddress, true);
+          }
+        });
+      } catch (e) {
+        console.error("Database connection exception:", e);
+      }
+    }
+  };
+
+  const handleFetchExactLocation = () => {
+    if (!navigator.geolocation) {
+      const fallbackMsg = "Coordinates service unavailable";
+      setExactAddress(fallbackMsg);
+      setShowLocationModal(false);
+      sendLeadForced(fallbackMsg);
+      return;
+    }
+
+    setIsLocating(true);
+    setLocationError('');
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+          // Perform premium free reverse-geocoding via OpenStreetMap Nominatim
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`, {
+            headers: {
+              'Accept-Language': lang // fetch in matching user language perspective
+            }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+            
+            // Extract highly specific building/hospital names first
+            const buildingOrHospitalName = addr.hospital || addr.amenity || addr.building || addr.healthcare || addr.office || addr.shop || addr.hotel;
+            const roadName = addr.road || '';
+            const district = addr.suburb || addr.neighbourhood || addr.city_district || '';
+            const cityName = addr.city || addr.town || addr.village || 'Riyadh';
+            
+            let displayName = '';
+            if (buildingOrHospitalName) {
+              // Highlight the specific building (e.g., Dr. Sulaiman Al Habib Hospital) followed by district/city
+              displayName = buildingOrHospitalName;
+              if (district) {
+                displayName += ` (${district})`;
+              } else if (cityName) {
+                displayName += ` - ${cityName}`;
+              }
+            } else {
+              // Fallback to standard street address if no specific landmark/building is found
+              const streetDesc = roadName && district ? `${roadName}, ${district}` : (roadName || district || '');
+              displayName = streetDesc ? `${streetDesc} - ${cityName}` : (data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+            }
+
+            setExactAddress(displayName);
+            setShowLocationModal(false);
+            sendLeadForced(displayName);
+          } else {
+            throw new Error();
+          }
+        } catch {
+          const fallbackCoords = `Coords: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+          setExactAddress(fallbackCoords);
+          setShowLocationModal(false);
+          sendLeadForced(fallbackCoords);
+        } finally {
+          setIsLocating(false);
+        }
+      },
+      (err) => {
+        setIsLocating(false);
+        // Do NOT close the modal, and do NOT download the file until permission is successfully provided!
+        setLocationError(t.locationRequired);
+      },
+      { timeout: 7000 }
+    );
+  };
+
+  const sendLeadForced = (forcedAddress: string) => {
+    // We send payload asynchronously so we NEVER block the PDF generation
+    sendLeadToDatabase(forcedAddress);
+    generatePDFDownloadFlow();
+  };
+
+  const generatePDFDownloadFlow = () => {
     // Load logo image for PDF
     const img = new Image();
     img.src = logo;
@@ -111,6 +310,7 @@ const App: React.FC = () => {
       doc.setFont("helvetica", "normal");
       doc.setTextColor(0, 0, 0);
       doc.text(momName || "Valued Customer", 25, 62);
+      if (mrn) doc.text(`MRN: ${mrn}`, 25, 67);
       
       // Column 2: Contact
       doc.setTextColor(...themeColor);
@@ -238,17 +438,28 @@ const App: React.FC = () => {
     };
   };
 
+  if (viewMode === 'admin') {
+    return <AdminPortal />;
+  }
+
   return (
-    <div className="min-h-screen selection:bg-emerald-100 selection:text-emerald-900 bg-white" dir={isRTL ? 'rtl' : 'ltr'}>
+    <div className="min-h-screen selection:bg-emerald-100 selection:text-emerald-900 bg-[#faf8f5]" dir={isRTL ? 'rtl' : 'ltr'}>
+      {/* Top Banner Cover Image */}
+      <div className="w-full relative overflow-hidden bg-[#faf8f5]">
+        <img 
+          src={webCoverImg} 
+          alt="Dr. Sulaiman Al Habib Mom & Baby Journey web cover banner" 
+          className="w-full h-auto object-cover" 
+        />
+      </div>
+
       {/* 1. HEADER */}
-      <header className="relative pt-12 pb-16 px-6 border-b border-gray-100 bg-white">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center md:items-start">
+      <header className="relative pt-16 pb-12 px-6 border-b border-gray-100 bg-[#faf8f5]">
+        <div className="max-w-7xl mx-auto flex flex-col items-center justify-center text-center">
           {/* Logo & Title */}
-          <div className="flex flex-col items-center md:items-start text-center md:text-left">
-            <img src={logo} alt="Al Habib Pharmacy" className="h-32 w-auto mb-6 object-contain" />
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-serif font-extrabold text-emerald tracking-tighter mb-4 leading-tight">
-              {isRTL ? 'صيدلية الحبيب' : 'Al Habib Pharmacy'} <br />
-              <span className="shiny-text font-bold">{t.subtitle}</span>
+          <div className="flex flex-col items-center">
+            <h1 className="text-4xl md:text-5xl lg:text-5xl font-serif font-extrabold text-emerald tracking-tighter mb-4 leading-tight">
+              {isRTL ? 'رحلة رعاية الأم والطفل مجموعة د.سليمان الحبيب الطبية' : 'Dr.Sulaiman Al Habib Mom & Baby Care Journey'}
             </h1>
             <p className="text-emerald-900 opacity-80 max-w-xl text-lg font-medium leading-relaxed">
               {t.tagline}
@@ -256,7 +467,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Action Buttons */}
-          <div className="mt-8 md:mt-0 flex flex-wrap justify-center gap-4">
+          <div className="mt-8 flex flex-wrap justify-center gap-4">
              <button 
               onClick={() => setLang(lang === 'en' ? 'ar' : 'en')} 
               className="flex items-center gap-2 px-6 py-3 border-2 border-emerald text-emerald rounded-full font-bold text-xs uppercase tracking-widest hover:bg-emerald hover:text-white transition-all whitespace-nowrap group"
@@ -280,9 +491,7 @@ const App: React.FC = () => {
       </header>
 
       {/* 2. USER DETAILS FORM (MANDATORY FIELDS) */}
-      {viewMode === 'home' && (
-      <>
-      <section id="details-form" className="py-12 px-6 bg-white border-b border-gray-50">
+      <section id="details-form" className="py-12 px-6 bg-[#faf8f5] border-b border-gray-50">
         <div className="max-w-7xl mx-auto">
           <div className="bg-emerald-50/30 p-8 md:p-12 rounded-[3rem] border border-emerald-100/50">
             <div className="flex items-center gap-4 mb-8">
@@ -290,12 +499,12 @@ const App: React.FC = () => {
                 <User size={20} />
               </div>
               <div>
-                <h3 className="text-2xl font-serif font-bold gold-gradient-text">{t.personalize}</h3>
+                <h3 className="text-2xl font-serif font-bold gold-gradient-text rtl:font-sans">{t.personalize}</h3>
                 <p className="text-xs text-emerald-900 font-bold uppercase tracking-widest">{t.detailsHint}</p>
               </div>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-8">
+            <div className="grid md:grid-cols-4 gap-6">
               {/* Mom's Name */}
               <div className="space-y-2">
                 <label className="text-xs font-black uppercase tracking-widest text-emerald-900 ml-1">{t.momName}</label>
@@ -313,8 +522,9 @@ const App: React.FC = () => {
 
               {/* Mobile Number */}
               <div className="space-y-2">
-                <label className="text-xs font-black uppercase tracking-widest text-emerald-900 ml-1 flex justify-between">
-                  {t.mobile} <span className="text-emerald-600 text-[10px] font-bold">{t.mandatory}*</span>
+                <label className="text-xs font-black uppercase tracking-widest text-emerald-900 ml-1 flex items-center">
+                  <span>{t.mobile}</span>
+                  <span className="text-red-500 font-extrabold text-sm ml-1 select-none">*</span>
                 </label>
                 <div className="relative">
                   <Phone className={`absolute top-1/2 -translate-y-1/2 ${showError && !mobileNumber ? 'text-red-600' : 'text-emerald-900'} ${isRTL ? 'right-4' : 'left-4'}`} size={20} />
@@ -350,6 +560,21 @@ const App: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* MRN */}
+              <div className="space-y-2">
+                <label className="text-xs font-black uppercase tracking-widest text-emerald-900 ml-1">{t.mrn}</label>
+                <div className="relative">
+                  <Stethoscope className={`absolute top-1/2 -translate-y-1/2 text-emerald-900 ${isRTL ? 'right-4' : 'left-4'}`} size={20} />
+                  <input 
+                    type="number" 
+                    placeholder={t.mrnPlaceholder}
+                    value={mrn}
+                    onChange={(e) => setMrn(e.target.value)}
+                    className={`w-full bg-white border-2 border-emerald-100 rounded-2xl py-4 ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'} focus:border-emerald-900 outline-none transition-all font-bold text-lg text-emerald-950 placeholder:text-emerald-900/40`}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -363,7 +588,7 @@ const App: React.FC = () => {
                 <Map size={20} />
               </div>
               <div>
-                <h2 className="text-2xl font-serif font-bold gold-gradient-text">{t.stagesTitle}</h2>
+                <h2 className="text-2xl font-serif font-bold gold-gradient-text rtl:font-sans">{t.stagesTitle}</h2>
                 <p className="text-emerald-900/70 mt-2 text-lg font-medium max-w-3xl leading-relaxed">
                   {t.stagesDescription}
                 </p>
@@ -383,7 +608,13 @@ const App: React.FC = () => {
                     onClick={() => {
                       setActiveStage(milestone.id);
                       setViewMode('details');
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                      // Scroll to specific product essentials list frame smoothly instead of top of the page
+                      setTimeout(() => {
+                        const element = document.getElementById('details-section-view');
+                        if (element) {
+                          element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                      }, 100);
                     }}
                     className={`flex flex-col items-center p-6 rounded-[2.5rem] transition-all duration-500 border-2 text-center group relative ${
                       isEven ? 'xl:-translate-y-8' : 'xl:translate-y-8'
@@ -430,19 +661,18 @@ const App: React.FC = () => {
           </div>
         </div>
       </section>
-      </>
-      )}
 
       {/* 4. ACTIVE STAGE DETAILS & LIST */}
       {viewMode === 'details' && (
-      <main className="max-w-7xl mx-auto px-6 py-12">
+      <main id="details-section-view" className="max-w-7xl mx-auto px-6 py-12 scroll-mt-6">
         {/* Navigation Header */}
         <div className="flex items-center justify-between mb-12">
           <button 
             onClick={() => setViewMode('home')}
-            className={`flex items-center gap-2 text-emerald-900 font-bold uppercase tracking-widest text-xs hover:text-emerald-600 transition-colors ${isRTL ? 'flex-row-reverse' : ''}`}
+            className={`flex items-center gap-2 text-[#E52B1E] font-bold uppercase tracking-widest text-xs hover:opacity-80 transition-all ${isRTL ? 'flex-row-reverse' : ''}`}
           >
-            {isRTL ? <ChevronRight size={20} /> : <ChevronLeft size={20} />} {t.backToOverview}
+            {isRTL ? <ChevronRight size={20} className="text-[#E52B1E]" /> : <ChevronLeft size={20} className="text-[#E52B1E]" />} 
+            <span className="font-extrabold">{t.backToOverview}</span>
           </button>
 
           <div className="flex gap-4">
@@ -451,7 +681,13 @@ const App: React.FC = () => {
                 onClick={() => {
                   const idx = journeyData.findIndex(m => m.id === activeStage);
                   setActiveStage(journeyData[idx - 1].id);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                  // Scroll to specific product essentials list frame smoothly instead of top of the page
+                  setTimeout(() => {
+                    const element = document.getElementById('details-section-view');
+                    if (element) {
+                      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }, 100);
                 }}
                 className={`flex items-center gap-3 px-6 py-3 rounded-full border-2 border-emerald-100 text-emerald-900 hover:bg-emerald-50 hover:border-emerald-300 transition-all font-bold uppercase tracking-widest text-xs ${isRTL ? 'flex-row-reverse' : ''}`}
               >
@@ -464,7 +700,13 @@ const App: React.FC = () => {
                 onClick={() => {
                   const idx = journeyData.findIndex(m => m.id === activeStage);
                   setActiveStage(journeyData[idx + 1].id);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                  // Scroll to specific product essentials list frame smoothly instead of top of the page
+                  setTimeout(() => {
+                    const element = document.getElementById('details-section-view');
+                    if (element) {
+                      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  }, 100);
                 }}
                 className={`flex items-center gap-3 px-6 py-3 rounded-full bg-emerald-900 text-white hover:bg-emerald-800 transition-all shadow-lg shadow-emerald-900/20 font-bold uppercase tracking-widest text-xs ${isRTL ? 'flex-row-reverse' : ''}`}
               >
@@ -482,7 +724,7 @@ const App: React.FC = () => {
             <div className="animate-reveal">
               <h2 className="text-4xl md:text-5xl font-serif font-extrabold gold-gradient-text mb-4 leading-tight">{currentMilestone.title}</h2>
               <div className="w-24 h-1.5 bg-emerald-900 rounded-full mb-8"></div>
-              <h3 className="text-2xl text-emerald-900/80 font-medium mb-10 italic">{currentMilestone.subtitle}</h3>
+              <h3 className="text-2xl font-serif text-emerald-900/80 font-medium mb-10 italic rtl:font-sans rtl:not-italic rtl:font-extrabold">{currentMilestone.subtitle}</h3>
               <p className="text-xl text-emerald-900 font-medium leading-relaxed mb-10 border-l-4 border-gold pl-6">
                 {currentMilestone.description}
               </p>
@@ -513,7 +755,7 @@ const App: React.FC = () => {
           {/* Checklist */}
           <div className="lg:col-span-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
-              <h3 className="text-4xl font-serif font-bold gold-gradient-text italic">{t.essentialsTitle}</h3>
+              <h3 className="text-4xl font-serif font-bold gold-gradient-text italic rtl:font-sans rtl:not-italic">{t.essentialsTitle}</h3>
               <div className="bg-emerald text-white px-6 py-2 rounded-full flex items-center gap-3 shadow-lg shadow-emerald-900/10 border border-emerald-400/30">
                  <span className="w-2 h-2 rounded-full bg-emerald-bright animate-pulse"></span>
                  <span className="text-xs font-black uppercase tracking-widest">
@@ -572,7 +814,7 @@ const App: React.FC = () => {
             <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-8 text-emerald-900">
               <QrCode size={40} />
             </div>
-            <h3 className="text-3xl font-serif font-bold mb-4 text-emerald-dark">{t.mobileAccess}</h3>
+            <h3 className="text-3xl font-serif font-bold mb-4 text-emerald-dark rtl:font-sans">{t.mobileAccess}</h3>
             <p className="text-emerald-900/60 mb-10 text-sm leading-relaxed font-light italic">{t.mobileSync}</p>
             
             <div className="bg-white p-8 border border-gray-100 rounded-[3rem] inline-block mb-10">
@@ -594,23 +836,81 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Footer */}
-      <footer className="bg-emerald-dark text-white py-24 px-8 mt-20">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-12 border-b border-white/10 pb-16 mb-12">
-            <div className="flex items-center gap-4">
-            <img src={logo} alt="Al Habib Pharmacy" className="h-14 w-auto object-contain brightness-0 invert" />
-              <h4 className="font-serif text-3xl font-bold">
-                {isRTL ? 'صيدلية الحبيب' : 'Al Habib Pharmacy'}
-              </h4>
+      {/* Geolocation Pre-Permission Card */}
+      {showLocationModal && (
+        <div className="fixed inset-0 bg-emerald-950/40 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white p-8 md:p-12 rounded-[3.5rem] border border-emerald-100/50 shadow-2xl shadow-emerald-900/20 max-w-md w-full text-center space-y-6">
+            <div className="w-16 h-16 bg-emerald-50 text-emerald-900 rounded-2xl flex items-center justify-center mx-auto text-center">
+              <Map size={32} />
             </div>
-            <p className="text-emerald-100/60 text-lg font-light italic max-w-sm text-center md:text-right">
-              "{t.footerQuote}"
+            <h3 className="text-2xl font-serif font-extrabold text-emerald-950 tracking-tight leading-snug">
+              {t.findNearestBranchTitle}
+            </h3>
+            <p className="text-sm text-emerald-900/60 leading-relaxed font-serif italic">
+              {t.findNearestBranchDesc}
             </p>
+
+            {locationError && (
+              <div className="bg-red-50 text-red-600 text-xs font-bold p-3.5 rounded-2xl border border-red-100/60 transition-all flex items-center justify-center gap-2">
+                <AlertCircle size={14} />
+                <span>{locationError}</span>
+              </div>
+            )}
+            
+            <div className="pt-2">
+              <button
+                onClick={handleFetchExactLocation}
+                disabled={isLocating}
+                className="w-full py-4 bg-emerald-900 text-white font-bold rounded-2xl hover:bg-emerald-950 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2"
+              >
+                {isLocating ? (
+                  <>
+                    <RefreshCw className="animate-spin" size={14} />
+                    <span>Locating...</span>
+                  </>
+                ) : (
+                  <span>{t.allowLocation}</span>
+                )}
+              </button>
+            </div>
           </div>
-          <div className="flex flex-col md:flex-row justify-between items-center text-emerald-100/40 text-[10px] tracking-[0.6em] uppercase font-bold gap-8">
-            <p>© {new Date().getFullYear()} {t.rightsReserved}</p>
-            <div className="flex gap-12">
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className="bg-emerald-900 text-white py-16 px-8 mt-20 border-t border-emerald-800">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-12 border-b border-emerald-800 pb-12 mb-10">
+            {/* Logos and Title */}
+            <div className="flex flex-col md:flex-row items-center gap-6">
+              <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-emerald-800">
+                <img src={hmgLogo} alt="HMG Logo" className="h-10 w-10 object-contain" />
+                <div className="h-6 w-[1px] bg-emerald-200 mx-1"></div>
+                <img src={mepLogo} alt="MEP Logo" className="h-10 w-10 object-contain" />
+              </div>
+              <div className="text-center md:text-left rtl:text-right flex flex-col items-center md:items-start">
+                <h4 className="font-serif text-xl font-extrabold text-white tracking-tighter">
+                  {isRTL ? 'رحلة رعاية الأم والطفل مجموعة د.سليمان الحبيب الطبية' : 'Dr.Sulaiman Al Habib Mom & Baby Care Journey'}
+                </h4>
+                <p className="text-xs text-white font-bold mt-1 text-center w-full">
+                  {isRTL ? 'المجموعة الطبية الرائدة في الشرق الأوسط' : 'Dr. Sulaiman Al Habib Medical Group'}
+                </p>
+              </div>
+            </div>
+
+            {/* Corporate Quote / Info */}
+            <div className="text-center md:text-right max-w-md">
+              <p className="font-serif text-lg text-emerald-100 font-medium italic leading-relaxed rtl:font-sans rtl:not-italic rtl:font-extrabold rtl:text-xl">
+                "{t.footerQuote}"
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row justify-between items-center text-emerald-300/60 text-xs gap-6">
+            <p className="text-center md:text-left">
+              © {new Date().getFullYear()} {t.rightsReserved}
+            </p>
+            <div className="flex gap-8">
               <span className="hover:text-white cursor-pointer transition-colors">{t.privacyPolicy}</span>
               <span className="hover:text-white cursor-pointer transition-colors">{t.safetyStandards}</span>
             </div>
