@@ -108,38 +108,51 @@ const App: React.FC = () => {
     }
     setShowError(false);
 
+    // Capture snapshot of current states BEFORE any potential race condition reset
+    const leadSnapshot = {
+      name: momName.trim() || null,
+      mobile_number: mobileNumber.trim(),
+      email: email.trim() || null,
+      mrn: mrn ? parseFloat(mrn) : null,
+      selected_items_count: selectedItems.size,
+      selected_items: Array.from(selectedItems),
+      stage: activeStage,
+      language: lang,
+      city: city || 'Riyadh'
+    };
+
     // Save lead IMMEDIATELY to guarantee capture
-    sendLeadToDatabase();
+    sendLeadToDatabase(leadSnapshot);
 
     generatePDFDownloadFlow();
   };
 
-  const sendLeadToDatabase = (retryWithoutNewFields = false) => {
-    // Convert mrn value strictly to number if present
-    const numericMrn = mrn ? parseFloat(mrn) : null;
+  const sendLeadToDatabase = (snapshot: {
+    name: string | null;
+    mobile_number: string;
+    email: string | null;
+    mrn: number | null;
+    selected_items_count: number;
+    selected_items: string[];
+    stage: string;
+    language: string;
+    city: string;
+  }) => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
     if (supabaseUrl && supabaseKey) {
       try {
-        const payload: any = retryWithoutNewFields ? {
-          name: momName || null,
-          mobile_number: mobileNumber,
-          email: email || null,
-          selected_items_count: selectedItems.size,
-          selected_items: Array.from(selectedItems),
-          stage: activeStage,
-          language: lang
-        } : {
-          name: momName || null,
-          mobile_number: mobileNumber,
-          email: email || null,
-          mrn: numericMrn,
-          selected_items_count: selectedItems.size,
-          selected_items: Array.from(selectedItems),
-          stage: activeStage,
-          language: lang,
-          city: city || 'Riyadh',
-          exact_address: null
+        // Build payload matching EXACTLY the columns definition in Supabase to guarantee successful insert on the very first try!
+        const payload = {
+          name: snapshot.name,
+          mobile_number: snapshot.mobile_number,
+          email: snapshot.email,
+          mrn: snapshot.mrn,
+          selected_items_count: snapshot.selected_items_count,
+          selected_items: snapshot.selected_items,
+          stage: snapshot.stage,
+          language: snapshot.language,
+          city: snapshot.city
         };
 
         // Fire and forget without holding back the user flow - fully non-blocking!
@@ -161,22 +174,64 @@ const App: React.FC = () => {
           if (!res.ok) {
             const errDetails = await res.text();
             console.error(`Supabase Submission Failed (Status ${res.status}):`, errDetails);
-            if (!retryWithoutNewFields) {
-              console.warn("Retrying submission with default database columns fallback...");
-              sendLeadToDatabase(true);
-            }
+            console.warn("Retrying submission with default database columns fallback...");
+            sendLeadToDatabaseFallback(snapshot);
           } else {
             console.log("Lead successfully stored in Supabase!");
           }
         }).catch(err => {
           clearTimeout(timeoutId);
           console.error("Network error communicating with Supabase:", err);
-          if (!retryWithoutNewFields) {
-            sendLeadToDatabase(true);
-          }
+          sendLeadToDatabaseFallback(snapshot);
         });
       } catch (e) {
         console.error("Database connection exception:", e);
+      }
+    }
+  };
+
+  const sendLeadToDatabaseFallback = (snapshot: any) => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    if (supabaseUrl && supabaseKey) {
+      try {
+        const payload = {
+          name: snapshot.name,
+          mobile_number: snapshot.mobile_number,
+          email: snapshot.email,
+          selected_items_count: snapshot.selected_items_count,
+          selected_items: snapshot.selected_items,
+          stage: snapshot.stage,
+          language: snapshot.language
+        };
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+        fetch(`${supabaseUrl}/rest/v1/leads`, {
+          method: 'POST',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        }).then(async (res) => {
+          clearTimeout(timeoutId);
+          if (!res.ok) {
+            const errDetails = await res.text();
+            console.error(`Supabase Submission Fallback Failed (Status ${res.status}):`, errDetails);
+          } else {
+            console.log("Lead successfully stored in Supabase via fallback!");
+          }
+        }).catch(err => {
+          clearTimeout(timeoutId);
+          console.error("Network error communicating with Supabase on fallback:", err);
+        });
+      } catch (e) {
+        console.error("Fallback database connection exception:", e);
       }
     }
   };
