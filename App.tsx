@@ -1176,8 +1176,10 @@ const App: React.FC = () => {
                   >
                     <div>
                       <div className="flex justify-between items-start mb-6">
-                        <span className={`text-[9px] font-black uppercase tracking-widest px-4 py-1.5 rounded-xl border ${
-                          isSelected ? 'bg-white/10 text-emerald-300 border-white/20' : 'bg-emerald-50 text-emerald-800 border-emerald-100'
+                        <span className={`text-[10px] font-black uppercase tracking-widest px-4.5 py-2 rounded-xl border-2 font-mono shadow-sm ${
+                          isSelected 
+                            ? 'bg-white/20 text-white border-white/30' 
+                            : 'bg-emerald-50 text-emerald-900 border-emerald-100/80'
                         }`}>
                           {item.category}
                         </span>
