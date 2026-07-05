@@ -102,6 +102,69 @@ export const AdminPortal: React.FC = () => {
     return resolvedItemNames.join('; ');
   };
 
+  const translateArabicCityToEnglish = (city: string | undefined | null): string => {
+    if (!city) return 'Riyadh';
+    const trimmed = city.trim();
+    const maps: Record<string, string> = {
+      'الرياض': 'Riyadh',
+      'Riyadh': 'Riyadh',
+      'جدة': 'Jeddah',
+      'Jeddah': 'Jeddah',
+      'مكة': 'Makkah',
+      'مكة المكرمة': 'Makkah',
+      'Makkah': 'Makkah',
+      'Mecca': 'Mecca',
+      'المدينة': 'Medina',
+      'المدينة المنورة': 'Medina',
+      'Medina': 'Medina',
+      'الدمام': 'Dammam',
+      'Dammam': 'Dammam',
+      'الخبر': 'Khobar',
+      'Khobar': 'Khobar',
+      'الجبيل': 'Jubail',
+      'Jubail': 'Jubail',
+      'القصيم': 'Qassim',
+      'Qassim': 'Qassim',
+      'بريدة': 'Buraydah',
+      'Buraydah': 'Buraydah',
+      'الهفوف': 'Hofuf',
+      'Hofuf': 'Hofuf',
+      'الأحساء': 'Al-Ahsa',
+      'Al-Ahsa': 'Al-Ahsa',
+      'الطائف': 'Taif',
+      'Taif': 'Taif',
+      'تبوك': 'Tabuk',
+      'Tabuk': 'Tabuk',
+      'خميس مشيط': 'Khamis Mushait',
+      'Khamis Mushait': 'Khamis Mushait',
+      'أبها': 'Abha',
+      'Abha': 'Abha',
+      'حائل': 'Hail',
+      'Hail': 'Hail',
+      'نجران': 'Najran',
+      'Najran': 'Najran',
+      'جازان': 'Jazan',
+      'Jazan': 'Jazan',
+      'جبيل': 'Jubail',
+      'القطيف': 'Qatif',
+      'Qatif': 'Qatif'
+    };
+    return maps[trimmed] || trimmed;
+  };
+
+  const mapStageIdToEnglish = (stage: string | undefined | null): string => {
+    if (!stage) return 'General';
+    const maps: Record<string, string> = {
+      'pre_pregnancy': 'Pre-Pregnancy',
+      'early_pregnancy': 'Early Pregnancy',
+      'late_pregnancy': 'Late Pregnancy',
+      'post_delivery': 'Postpartum & New Baby',
+      'infant_care': 'Infant Care (0-1 Years)',
+      'toddler_care': 'Toddler Care (1-3 Years)'
+    };
+    return maps[stage] || stage.replace('_', ' ');
+  };
+
   const exportToCSV = () => {
     if (leads.length === 0) return;
     
@@ -124,21 +187,20 @@ export const AdminPortal: React.FC = () => {
 
     leads.forEach(lead => {
       const id = lead.id || '';
-      const dateCreated = lead.created_at ? new Date(lead.created_at).toLocaleString().replace(/,/g, ' ') : '';
+      const dateCreated = lead.created_at ? new Date(lead.created_at).toLocaleString('en-US').replace(/,/g, ' ') : '';
       const name = (lead.name || 'Valued Customer').replace(/"/g, '""');
       const mobile = (lead.mobile_number || '').replace(/"/g, '""');
       const email = (lead.email || '').replace(/"/g, '""');
-      const mrnVal = (lead.mrn || '').replace(/"/g, '""');
-      const targetStage = (lead.stage || '').replace(/"/g, '""');
-      const userLang = lead.language || '';
-      const approxCity = (lead.city || '').replace(/"/g, '""');
+      const mrnVal = lead.mrn ? String(lead.mrn) : '';
+      
+      const targetStage = mapStageIdToEnglish(lead.stage).replace(/"/g, '""');
+      const userLang = lead.language === 'ar' ? 'Arabic' : 'English';
+      const approxCity = translateArabicCityToEnglish(lead.city).replace(/"/g, '""');
 
-      const masterChecklist = lead.language === 'ar' 
-        ? JOURNEY_DATA_AR.flatMap(m => m.checklist) 
-        : JOURNEY_DATA.flatMap(m => m.checklist);
+      // Export all items separately with English descriptions for database analytics
+      const masterChecklistEn = JOURNEY_DATA.flatMap(m => m.checklist);
 
       if (!lead.selected_items || lead.selected_items.length === 0) {
-        // If a user submitted without choosing any items, export one blank product row
         const row = [
           `"${id}"`,
           `"${dateCreated}"`,
@@ -155,11 +217,12 @@ export const AdminPortal: React.FC = () => {
         ];
         csvRows.push(row.join(','));
       } else {
-        // Create an individual row for every single checked product
         lead.selected_items.forEach(itemId => {
-          const match = masterChecklist.find(item => item.id === itemId);
-          const pNameDesc = match ? match.name : itemId;
-          const pCategory = match ? match.category : 'Unknown';
+          const matchedItemEn = masterChecklistEn.find(item => item.id === itemId);
+          
+          const productId = itemId;
+          const productName = (matchedItemEn ? matchedItemEn.name : itemId).replace(/"/g, '""');
+          const productCategory = (matchedItemEn ? matchedItemEn.category : 'Unknown').replace(/"/g, '""');
 
           const row = [
             `"${id}"`,
@@ -171,9 +234,9 @@ export const AdminPortal: React.FC = () => {
             `"${targetStage}"`,
             `"${userLang}"`,
             `"${approxCity}"`,
-            `"${itemId}"`,
-            `"${pNameDesc.replace(/"/g, '""')}"`,
-            `"${pCategory.replace(/"/g, '""')}"`
+            `"${productId}"`,
+            `"${productName}"`,
+            `"${productCategory}"`
           ];
           csvRows.push(row.join(','));
         });
