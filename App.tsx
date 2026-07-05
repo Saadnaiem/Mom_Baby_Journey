@@ -1118,23 +1118,27 @@ const App: React.FC = () => {
               </p>
               
               <div className="space-y-6">
-                <div className="p-10 bg-emerald-dark text-white rounded-[3rem] shadow-xl relative overflow-hidden group">
+                <div className="p-10 bg-emerald-dark text-white rounded-[3rem] shadow-xl relative overflow-hidden group transition-all duration-300 hover:shadow-2xl hover:-translate-y-1">
                   <div className={`absolute top-0 p-4 opacity-10 group-hover:rotate-12 transition-transform ${isRTL ? 'left-0' : 'right-0'}`}>
                     <ShieldCheck size={120} />
                   </div>
                   <div className="flex items-center gap-3 mb-4 text-emerald-300">
-                    <ShieldCheck size={28} />
-                    <h5 className="font-bold text-xs uppercase tracking-widest">{t.clinicalInsight}</h5>
+                    <ShieldCheck size={32} className="stroke-[2.5]" />
+                    <h5 className="font-serif font-black text-sm uppercase tracking-wider rtl:font-sans">{t.clinicalInsight}</h5>
                   </div>
-                  <p className="text-lg font-light leading-relaxed italic opacity-90 relative z-10">"{currentMilestone.clinicalInsight}"</p>
+                  <p className="text-lg font-serif font-semibold leading-relaxed italic opacity-95 relative z-10 text-emerald-50 rtl:font-sans rtl:not-italic select-none">
+                    "{currentMilestone.clinicalInsight}"
+                  </p>
                 </div>
 
-                <div className="p-10 bg-emerald-50 rounded-[3rem] border border-emerald-100 group">
+                <div className="p-10 bg-emerald-50/50 rounded-[3rem] border-2 border-emerald-100 group transition-all duration-300 hover:shadow-lg hover:border-emerald-200 hover:-translate-y-1">
                   <div className="flex items-center gap-3 mb-4 text-emerald-900">
-                    <Stethoscope size={28} />
-                    <h5 className="font-bold text-xs uppercase tracking-widest">{t.expertTip}</h5>
+                    <Stethoscope size={32} className="stroke-[2.5]" />
+                    <h5 className="font-serif font-black text-sm uppercase tracking-wider rtl:font-sans">{t.expertTip}</h5>
                   </div>
-                  <p className="text-lg font-light leading-relaxed italic text-emerald-950 opacity-80">"{currentMilestone.expertTip}"</p>
+                  <p className="text-lg font-serif font-semibold leading-relaxed italic text-emerald-950 opacity-90 select-none rtl:font-sans rtl:not-italic">
+                    "{currentMilestone.expertTip}"
+                  </p>
                 </div>
               </div>
             </div>
@@ -1168,10 +1172,10 @@ const App: React.FC = () => {
                   <div 
                     key={item.id}
                     onClick={() => toggleItem(item.id)}
-                    className={`p-8 rounded-[2.5rem] cursor-pointer group flex flex-col justify-between h-full border-2 transition-all duration-500 hover:scale-[1.02] ${
+                    className={`p-8 rounded-[2.5rem] cursor-pointer group flex flex-col justify-between h-full border-2 transition-all duration-500 hover:scale-[1.02] shadow-sm hover:shadow-xl ${
                       isSelected 
-                        ? 'bg-emerald-700 text-white border-emerald-700' 
-                        : 'glass-card border-transparent'
+                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-emerald-900/10' 
+                        : 'glass-card border-emerald-100/40 bg-white/70 backdrop-blur-md'
                     }`}
                   >
                     <div>
@@ -1185,8 +1189,8 @@ const App: React.FC = () => {
                         </span>
                         <div className={`transition-all duration-300 ${isSelected ? 'scale-110' : 'opacity-20 group-hover:opacity-100'}`}>
                           {isSelected 
-                            ? <CheckCircle size={32} className="text-emerald-300" /> 
-                            : <div className="w-8 h-8 rounded-full border-2 border-emerald-900"></div>
+                            ? <CheckCircle size={32} className="text-emerald-400 fill-white" /> 
+                            : <div className="w-8 h-8 rounded-full border-2 border-emerald-900/30 group-hover:border-emerald-900 transition-colors"></div>
                           }
                         </div>
                       </div>
