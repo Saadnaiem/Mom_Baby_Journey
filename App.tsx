@@ -585,8 +585,8 @@ const App: React.FC = () => {
         const logoWidth = logoHeight * logoRatio;
         doc.addImage(img, 'PNG', 15, 17, logoWidth, logoHeight);
 
-        // Header Text
-        const textStartX = 15 + logoWidth + 5;
+        // Header Text - shifted slightly to the right style (+8mm)
+        const textStartX = 15 + logoWidth + 13;
         if (isRTL) {
           addArabicTextToPdf(doc, "مجموعة د. سليمان الحبيب الطبية", 195, 18, 14, true, "rgb(6, 78, 59)", "right", 110);
           addArabicTextToPdf(doc, "رحلة رعاية الأم والطفل - مستلزمات مخصصة", 195, 25, 9, false, "rgb(120, 120, 120)", "right", 110);
