@@ -243,6 +243,107 @@ const App: React.FC = () => {
     return clean.length > 0 ? clean : fallback;
   };
 
+  const addArabicTextToPdf = (
+    doc: jsPDF,
+    text: string,
+    x: number,
+    y: number,
+    fontSize: number,
+    isBold: boolean,
+    colorStr: string,
+    align: 'right' | 'left' | 'center' = 'right',
+    maxWidth: number = 180
+  ): number => {
+    try {
+      const scale = 4; // High definition scale factor
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d')!;
+      
+      const fontStyle = `${isBold ? 'bold' : 'normal'} ${fontSize * scale}px Cairo, "Cairo Regular", "Cairo Bold", Tahoma, Arial, sans-serif`;
+      ctx.font = fontStyle;
+      
+      // Convert maxWidth from mm to points and then to pixels for canvas measurements
+      const mmToPoints = 2.83464;
+      const maxWidthPoints = maxWidth * mmToPoints;
+      const maxWidthPixels = maxWidthPoints * scale;
+      
+      const words = text.split(' ');
+      const lines: string[] = [];
+      let currentLine = words[0] || '';
+      
+      for (let i = 1; i < words.length; i++) {
+        const testLine = currentLine + ' ' + words[i];
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidthPixels) {
+          lines.push(currentLine);
+          currentLine = words[i];
+        } else {
+          currentLine = testLine;
+        }
+      }
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      
+      // Measure actual maximum line width to avoid stretching empty canvas space
+      let maxLineWidth = 0;
+      lines.forEach(line => {
+        const metrics = ctx.measureText(line);
+        if (metrics.width > maxLineWidth) {
+          maxLineWidth = metrics.width;
+        }
+      });
+      maxLineWidth = Math.max(maxLineWidth, 1);
+      
+      const lineHeightPoints = fontSize * 1.35;
+      const canvasWidth = maxLineWidth + (2 * scale); // small padding
+      const canvasHeight = lines.length * lineHeightPoints * scale + (2 * scale);
+      
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      
+      // Re-apply context font after canvas resize
+      ctx.font = fontStyle;
+      ctx.textBaseline = 'top';
+      ctx.direction = 'rtl';
+      ctx.fillStyle = colorStr;
+      
+      lines.forEach((line, index) => {
+        const lineY = index * lineHeightPoints * scale + (1 * scale);
+        
+        if (align === 'center') {
+          ctx.textAlign = 'center';
+          ctx.fillText(line, canvasWidth / 2, lineY);
+        } else if (align === 'left') {
+          ctx.textAlign = 'left';
+          ctx.fillText(line, 1 * scale, lineY);
+        } else {
+          ctx.textAlign = 'right';
+          ctx.fillText(line, canvasWidth - (1 * scale), lineY);
+        }
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      
+      // Convert actual canvas dimensions back to millimeters for jsPDF placement
+      const docWidth = (canvasWidth / scale) * 0.352778;
+      const docHeight = (canvasHeight / scale) * 0.352778;
+      
+      let docX = x;
+      if (align === 'right') {
+        docX = x - docWidth;
+      } else if (align === 'center') {
+        docX = x - (docWidth / 2);
+      }
+      
+      doc.addImage(imgData, 'PNG', docX, y, docWidth, docHeight, undefined, 'FAST');
+      return docHeight;
+    } catch (e) {
+      console.error("addArabicTextToPdf helper error:", e);
+      return 0;
+    }
+  };
+
   const generatePDFWithoutLogoFallback = () => {
     try {
       const doc = new jsPDF();
@@ -250,19 +351,25 @@ const App: React.FC = () => {
       const goldColor = [180, 138, 40] as const;
 
       // --- HEADER SECTION ---
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(22); 
-      doc.setTextColor(...themeColor);
-      doc.text("DR. SULAIMAN AL HABIB", 15, 25);
-      
-      doc.setFontSize(14);
-      doc.setTextColor(...goldColor);
-      doc.text("MOM AND BABY JOURNEY", 15, 33);
-      
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(120, 120, 120);
-      doc.text("PERSONALIZED ESSENTIALS CHECKLIST", 15, 39);
+      if (isRTL) {
+        addArabicTextToPdf(doc, "مجموعة د. سليمان الحبيب الطبية", 195, 18, 16, true, "rgb(6, 78, 59)", "right", 180);
+        addArabicTextToPdf(doc, "رحلة رعاية الأم والطفل", 195, 26, 12, true, "rgb(180, 138, 40)", "right", 180);
+        addArabicTextToPdf(doc, "قائمة المستلزمات المخصصة", 195, 33, 9, false, "rgb(120, 120, 120)", "right", 180);
+      } else {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(22); 
+        doc.setTextColor(...themeColor);
+        doc.text("DR. SULAIMAN AL HABIB", 15, 25);
+        
+        doc.setFontSize(14);
+        doc.setTextColor(...goldColor);
+        doc.text("MOM AND BABY JOURNEY", 15, 33);
+        
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(120, 120, 120);
+        doc.text("PERSONALIZED ESSENTIALS CHECKLIST", 15, 39);
+      }
 
       // User Info Box
       doc.setFillColor(248, 250, 252);
@@ -273,32 +380,51 @@ const App: React.FC = () => {
       // User Info Content
       doc.setFontSize(9);
       
-      // Column 1: Prepared For
-      doc.setTextColor(...themeColor);
-      doc.setFont("helvetica", "bold");
-      doc.text("PREPARED FOR", 25, 57);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(0, 0, 0);
-      doc.text(sanitizePdfText(momName, "Valued Customer"), 25, 65);
-      if (mrn) doc.text(`MRN: ${mrn}`, 25, 70);
-      
-      // Column 2: Contact
-      doc.setTextColor(...themeColor);
-      doc.setFont("helvetica", "bold");
-      doc.text("CONTACT DETAILS", 85, 57);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(0, 0, 0);
-      doc.text(sanitizePdfText(mobileNumber, ""), 85, 65);
-      if (email) doc.text(sanitizePdfText(email, ""), 85, 70);
-      
-      // Column 3: Date
-      doc.setTextColor(...themeColor);
-      doc.setFont("helvetica", "bold");
-      doc.text("GENERATED ON", 145, 57);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(0, 0, 0);
-      doc.text(new Date().toLocaleDateString(), 145, 65);
-      doc.text(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 145, 70);
+      if (isRTL) {
+        // RTL columns (مجهزة لصالح, تفاصيل الاتصال, تاريخ الإنشاء)
+        addArabicTextToPdf(doc, "مجهّز لصالح", 185, 53, 9, true, "rgb(6, 78, 59)", "right", 50);
+        addArabicTextToPdf(doc, momName || "عميلنا العزيز", 185, 59, 9, false, "rgb(0, 0, 0)", "right", 50);
+        if (mrn) {
+          addArabicTextToPdf(doc, `الملف الطبي: ${mrn}`, 185, 65, 8, false, "rgb(0, 0, 0)", "right", 50);
+        }
+
+        addArabicTextToPdf(doc, "تفاصيل الاتصال", 130, 53, 9, true, "rgb(6, 78, 59)", "right", 50);
+        addArabicTextToPdf(doc, mobileNumber, 130, 59, 9, false, "rgb(0, 0, 0)", "right", 50);
+        if (email) {
+          addArabicTextToPdf(doc, email, 130, 65, 8, false, "rgb(0, 0, 0)", "right", 50);
+        }
+
+        addArabicTextToPdf(doc, "تاريخ الإنشاء", 75, 53, 9, true, "rgb(6, 78, 59)", "right", 55);
+        addArabicTextToPdf(doc, new Date().toLocaleDateString('en-US'), 75, 59, 9, false, "rgb(0, 0, 0)", "right", 55);
+        addArabicTextToPdf(doc, new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 75, 65, 8, false, "rgb(0, 0, 0)", "right", 55);
+      } else {
+        // Column 1: Prepared For
+        doc.setTextColor(...themeColor);
+        doc.setFont("helvetica", "bold");
+        doc.text("PREPARED FOR", 25, 57);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(0, 0, 0);
+        doc.text(sanitizePdfText(momName, "Valued Customer"), 25, 65);
+        if (mrn) doc.text(`MRN: ${mrn}`, 25, 70);
+        
+        // Column 2: Contact
+        doc.setTextColor(...themeColor);
+        doc.setFont("helvetica", "bold");
+        doc.text("CONTACT DETAILS", 85, 57);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(0, 0, 0);
+        doc.text(sanitizePdfText(mobileNumber, ""), 85, 65);
+        if (email) doc.text(sanitizePdfText(email, ""), 85, 70);
+        
+        // Column 3: Date
+        doc.setTextColor(...themeColor);
+        doc.setFont("helvetica", "bold");
+        doc.text("GENERATED ON", 145, 57);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(0, 0, 0);
+        doc.text(new Date().toLocaleDateString(), 145, 65);
+        doc.text(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 145, 70);
+      }
 
       let yOffset = 90;
 
@@ -306,9 +432,14 @@ const App: React.FC = () => {
       if (selectedItems.size === 0) {
          doc.setFontSize(12);
          doc.setTextColor(100, 100, 100);
-         doc.text("No essentials selected. Please select items to build your checklist.", 105, yOffset, { align: 'center' });
+         if (isRTL) {
+           addArabicTextToPdf(doc, "لم يتم اختيار أي مستلزمات. يرجى العودة والتحقق لتنزيل القائمة المخصصة.", 105, yOffset, 12, false, "rgb(100, 100, 100)", "center", 180);
+         } else {
+           doc.text("No essentials selected. Please select items to build your checklist.", 105, yOffset, { align: 'center' });
+         }
       } else {
-         JOURNEY_DATA.forEach(milestone => {
+         const journeyDataToUse = isRTL ? JOURNEY_DATA_AR : JOURNEY_DATA;
+         journeyDataToUse.forEach(milestone => {
             const stageItems = milestone.checklist.filter(item => selectedItems.has(item.id));
             
             if (stageItems.length > 0) {
@@ -319,51 +450,85 @@ const App: React.FC = () => {
                
                doc.setFillColor(...themeColor);
                doc.rect(15, yOffset, 180, 8, 'F');
-               doc.setTextColor(255, 255, 255);
-               doc.setFont("helvetica", "bold");
-               doc.setFontSize(10);
-               doc.text(`STAGE: ${milestone.title.toUpperCase()}`, 20, yOffset + 5.5);
+               
+               if (isRTL) {
+                 addArabicTextToPdf(doc, `المرحلة: ${milestone.title.toUpperCase()}`, 190, yOffset + 1.8, 10, true, "rgb(255, 255, 255)", "right", 170);
+               } else {
+                 doc.setTextColor(255, 255, 255);
+                 doc.setFont("helvetica", "bold");
+                 doc.setFontSize(10);
+                 doc.text(`STAGE: ${milestone.title.toUpperCase()}`, 20, yOffset + 5.5);
+               }
                
                yOffset += 15;
                
                stageItems.forEach(item => {
-                  const descLines = doc.splitTextToSize(item.description, 130);
-                  const itemHeight = 10 + (descLines.length * 4) + 5;
+                  const descLinesCount = Math.ceil(item.description.length / 55) || 1;
+                  const itemHeight = 10 + (descLinesCount * 4) + 6;
                   
                   if (yOffset + itemHeight > 280) { 
                     doc.addPage(); 
                     yOffset = 20; 
-                    doc.setFontSize(8);
-                    doc.setTextColor(150, 150, 150);
-                    doc.text(`(Continuation: ${milestone.title})`, 15, yOffset - 5);
+                    if (isRTL) {
+                      addArabicTextToPdf(doc, `(تابع: ${milestone.title})`, 195, yOffset - 5, 8, false, "rgb(150, 150, 150)", "right", 180);
+                    } else {
+                      doc.setFontSize(8);
+                      doc.setTextColor(150, 150, 150);
+                      doc.text(`(Continuation: ${milestone.title})`, 15, yOffset - 5);
+                    }
                   }
                   
-                  doc.setTextColor(0, 0, 0);
-                  doc.setFontSize(11);
-                  doc.setFont("helvetica", "bold");
-                  doc.text(item.name, 25, yOffset);
-                  
-                  doc.setFillColor(240, 240, 240);
-                  doc.setDrawColor(200, 200, 200);
-                  doc.roundedRect(155, yOffset - 4, 40, 6, 2, 2, 'FD');
-                  doc.setTextColor(...themeColor);
-                  doc.setFontSize(7);
-                  doc.text(item.category.toUpperCase(), 175, yOffset, { align: 'center' });
-                  
-                  doc.setDrawColor(...themeColor);
-                  doc.setLineWidth(0.5);
-                  doc.rect(16, yOffset - 3, 4, 4);
-                  
-                  yOffset += 5;
-                  doc.setTextColor(80, 80, 80);
-                  doc.setFontSize(9);
-                  doc.setFont("helvetica", "normal");
-                  doc.text(descLines, 25, yOffset);
-                  
-                  yOffset += (descLines.length * 4) + 8;
-                  
-                  doc.setDrawColor(230, 230, 230);
-                  doc.line(25, yOffset - 4, 195, yOffset - 4);
+                  if (isRTL) {
+                    // Checkbox
+                    doc.setDrawColor(...themeColor);
+                    doc.setLineWidth(0.5);
+                    doc.rect(191, yOffset - 3, 4, 4);
+
+                    // Category text box on far left
+                    doc.setFillColor(240, 240, 240);
+                    doc.setDrawColor(200, 200, 200);
+                    doc.roundedRect(15, yOffset - 4, 40, 6, 2, 2, 'FD');
+                    addArabicTextToPdf(doc, item.category, 35, yOffset - 3, 7, true, "rgb(6, 78, 59)", "center", 40);
+
+                    // Item title right side
+                    const titleHeight = addArabicTextToPdf(doc, item.name, 184, yOffset - 4, 11, true, "rgb(0, 0, 0)", "right", 120);
+                    yOffset += titleHeight + 2;
+                    
+                    // Item description
+                    const descHeight = addArabicTextToPdf(doc, item.description, 184, yOffset, 9, false, "rgb(80, 80, 80)", "right", 165);
+                    yOffset += descHeight + 6;
+
+                    doc.setDrawColor(230, 230, 230);
+                    doc.line(15, yOffset - 4, 195, yOffset - 4);
+                  } else {
+                    doc.setTextColor(0, 0, 0);
+                    doc.setFontSize(11);
+                    doc.setFont("helvetica", "bold");
+                    doc.text(item.name, 25, yOffset);
+                    
+                    doc.setFillColor(240, 240, 240);
+                    doc.setDrawColor(200, 200, 200);
+                    doc.roundedRect(155, yOffset - 4, 40, 6, 2, 2, 'FD');
+                    doc.setTextColor(...themeColor);
+                    doc.setFontSize(7);
+                    doc.text(item.category.toUpperCase(), 175, yOffset, { align: 'center' });
+                    
+                    doc.setDrawColor(...themeColor);
+                    doc.setLineWidth(0.5);
+                    doc.rect(16, yOffset - 3, 4, 4);
+                    
+                    yOffset += 5;
+                    doc.setTextColor(80, 80, 80);
+                    doc.setFontSize(9);
+                    doc.setFont("helvetica", "normal");
+                    const descLines = doc.splitTextToSize(item.description, 130);
+                    doc.text(descLines, 25, yOffset);
+                    
+                    yOffset += (descLines.length * 4) + 8;
+                    
+                    doc.setDrawColor(230, 230, 230);
+                    doc.line(25, yOffset - 4, 195, yOffset - 4);
+                  }
                });
                
                yOffset += 5; 
@@ -375,11 +540,17 @@ const App: React.FC = () => {
       const totalPages = (doc as any).internal.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(150, 150, 150);
-        doc.text("Dr. Sulaiman Al Habib Medical Group", 105, 286, { align: 'center' });
-        doc.text("Mom & Baby Journey Essentials", 105, 290, { align: 'center' });
-        doc.text(`Page ${i} of ${totalPages}`, 195, 290, { align: 'right' });
+        if (isRTL) {
+          addArabicTextToPdf(doc, "مجموعة د. سليمان الحبيب الطبية", 105, 283, 8, true, "rgb(150, 150, 150)", "center", 100);
+          addArabicTextToPdf(doc, "رحلة رعاية الأم والطفل", 105, 287, 8, false, "rgb(150, 150, 150)", "center", 100);
+          addArabicTextToPdf(doc, `صفحة ${i} من ${totalPages}`, 195, 285, 8, false, "rgb(150, 150, 150)", "right", 40);
+        } else {
+          doc.setFontSize(8);
+          doc.setTextColor(150, 150, 150);
+          doc.text("Dr. Sulaiman Al Habib Medical Group", 105, 286, { align: 'center' });
+          doc.text("Mom & Baby Journey Essentials", 105, 290, { align: 'center' });
+          doc.text(`Page ${i} of ${totalPages}`, 195, 290, { align: 'right' });
+        }
       }
       
       doc.save(`Al-Habib-Journey-${mobileNumber}.pdf`);
@@ -408,23 +579,28 @@ const App: React.FC = () => {
         const goldColor = [180, 138, 40] as const;
         
         // --- HEADER SECTION ---
-        // Logo
+        // Logo - matched in height to the text block beside it
         const logoRatio = img.width / img.height;
-        const logoHeight = 24;
+        const logoHeight = 17; // Matches the height of the two-line header text block perfectly
         const logoWidth = logoHeight * logoRatio;
-        doc.addImage(img, 'PNG', 15, 15, logoWidth, logoHeight);
+        doc.addImage(img, 'PNG', 15, 17, logoWidth, logoHeight);
 
         // Header Text
         const textStartX = 15 + logoWidth + 5;
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(18); 
-        doc.setTextColor(...themeColor);
-        doc.text("MOM AND BABY JOURNEY", textStartX, 25);
-        
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(120, 120, 120);
-        doc.text("PERSONALIZED ESSENTIALS CHECKLIST", textStartX, 32);
+        if (isRTL) {
+          addArabicTextToPdf(doc, "مجموعة د. سليمان الحبيب الطبية", 195, 18, 14, true, "rgb(6, 78, 59)", "right", 110);
+          addArabicTextToPdf(doc, "رحلة رعاية الأم والطفل - مستلزمات مخصصة", 195, 25, 9, false, "rgb(120, 120, 120)", "right", 110);
+        } else {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(18); 
+          doc.setTextColor(...themeColor);
+          doc.text("MOM AND BABY JOURNEY", textStartX, 23);
+          
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(120, 120, 120);
+          doc.text("PERSONALIZED ESSENTIALS CHECKLIST", textStartX, 30);
+        }
 
         // User Info Box
         doc.setFillColor(248, 250, 252); // Light Gray/Blueish background
@@ -435,32 +611,50 @@ const App: React.FC = () => {
         // User Info Content
         doc.setFontSize(9);
         
-        // Column 1: Prepared For
-        doc.setTextColor(...themeColor);
-        doc.setFont("helvetica", "bold");
-        doc.text("PREPARED FOR", 25, 54);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(0, 0, 0);
-        doc.text(sanitizePdfText(momName, "Valued Customer"), 25, 62);
-        if (mrn) doc.text(`MRN: ${mrn}`, 25, 67);
-        
-        // Column 2: Contact
-        doc.setTextColor(...themeColor);
-        doc.setFont("helvetica", "bold");
-        doc.text("CONTACT DETAILS", 85, 54);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(0, 0, 0);
-        doc.text(sanitizePdfText(mobileNumber, ""), 85, 62);
-        if (email) doc.text(sanitizePdfText(email, ""), 85, 67);
-        
-        // Column 3: Date
-        doc.setTextColor(...themeColor);
-        doc.setFont("helvetica", "bold");
-        doc.text("GENERATED ON", 145, 54);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(0, 0, 0);
-        doc.text(new Date().toLocaleDateString(), 145, 62);
-        doc.text(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 145, 67);
+        if (isRTL) {
+          addArabicTextToPdf(doc, "مجهّز لصالح", 185, 50, 9, true, "rgb(6, 78, 59)", "right", 50);
+          addArabicTextToPdf(doc, momName || "عميلنا العزيز", 185, 56, 9, false, "rgb(0, 0, 0)", "right", 50);
+          if (mrn) {
+            addArabicTextToPdf(doc, `الملف الطبي: ${mrn}`, 185, 61, 8, false, "rgb(0, 0, 0)", "right", 50);
+          }
+
+          addArabicTextToPdf(doc, "تفاصيل الاتصال", 130, 50, 9, true, "rgb(6, 78, 59)", "right", 50);
+          addArabicTextToPdf(doc, mobileNumber, 130, 56, 9, false, "rgb(0, 0, 0)", "right", 50);
+          if (email) {
+            addArabicTextToPdf(doc, email, 130, 61, 8, false, "rgb(0, 0, 0)", "right", 50);
+          }
+
+          addArabicTextToPdf(doc, "تاريخ الإنشاء", 75, 50, 9, true, "rgb(6, 78, 59)", "right", 55);
+          addArabicTextToPdf(doc, new Date().toLocaleDateString('en-US'), 75, 56, 9, false, "rgb(0, 0, 0)", "right", 55);
+          addArabicTextToPdf(doc, new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 75, 61, 8, false, "rgb(0, 0, 0)", "right", 55);
+        } else {
+          // Column 1: Prepared For
+          doc.setTextColor(...themeColor);
+          doc.setFont("helvetica", "bold");
+          doc.text("PREPARED FOR", 25, 54);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(0, 0, 0);
+          doc.text(sanitizePdfText(momName, "Valued Customer"), 25, 62);
+          if (mrn) doc.text(`MRN: ${mrn}`, 25, 67);
+          
+          // Column 2: Contact
+          doc.setTextColor(...themeColor);
+          doc.setFont("helvetica", "bold");
+          doc.text("CONTACT DETAILS", 85, 54);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(0, 0, 0);
+          doc.text(sanitizePdfText(mobileNumber, ""), 85, 62);
+          if (email) doc.text(email, 85, 67);
+          
+          // Column 3: Date
+          doc.setTextColor(...themeColor);
+          doc.setFont("helvetica", "bold");
+          doc.text("GENERATED ON", 145, 54);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(0, 0, 0);
+          doc.text(new Date().toLocaleDateString(), 145, 62);
+          doc.text(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 145, 67);
+        }
 
         let yOffset = 85;
 
@@ -468,10 +662,15 @@ const App: React.FC = () => {
         if (selectedItems.size === 0) {
            doc.setFontSize(12);
            doc.setTextColor(100, 100, 100);
-           doc.text("No essentials selected. Please select items to build your checklist.", 105, yOffset, { align: 'center' });
+           if (isRTL) {
+             addArabicTextToPdf(doc, "لم يتم اختيار أي مستلزمات. يرجى العودة والتحقق لتنزيل القائمة المخصصة.", 105, yOffset, 12, false, "rgb(100, 100, 100)", "center", 180);
+           } else {
+             doc.text("No essentials selected. Please select items to build your checklist.", 105, yOffset, { align: 'center' });
+           }
         } else {
            // Group items by Milestone for better organization
-           JOURNEY_DATA.forEach(milestone => {
+           const journeyDataToUse = isRTL ? JOURNEY_DATA_AR : JOURNEY_DATA;
+           journeyDataToUse.forEach(milestone => {
               const stageItems = milestone.checklist.filter(item => selectedItems.has(item.id));
               
               if (stageItems.length > 0) {
@@ -484,62 +683,95 @@ const App: React.FC = () => {
                  // Section Header (Milestone Title)
                  doc.setFillColor(...themeColor);
                  doc.rect(15, yOffset, 180, 8, 'F');
-                 doc.setTextColor(255, 255, 255);
-                 doc.setFont("helvetica", "bold");
-                 doc.setFontSize(10);
-                 doc.text(`STAGE: ${milestone.title.toUpperCase()}`, 20, yOffset + 5.5);
+                 
+                 if (isRTL) {
+                   addArabicTextToPdf(doc, `المرحلة: ${milestone.title.toUpperCase()}`, 190, yOffset + 1.8, 10, true, "rgb(255, 255, 255)", "right", 170);
+                 } else {
+                   doc.setTextColor(255, 255, 255);
+                   doc.setFont("helvetica", "bold");
+                   doc.setFontSize(10);
+                   doc.text(`STAGE: ${milestone.title.toUpperCase()}`, 20, yOffset + 5.5);
+                 }
                  
                  yOffset += 15;
                  
                  // Items in this section
                  stageItems.forEach(item => {
                     // Check page break for item
-                    // Estimate height based on description length
-                    const descLines = doc.splitTextToSize(item.description, 130);
-                    const itemHeight = 10 + (descLines.length * 4) + 5;
+                    const descLinesCount = Math.ceil(item.description.length / 55) || 1;
+                    const itemHeight = 10 + (descLinesCount * 4) + 6;
                     
                     if (yOffset + itemHeight > 280) { 
                       doc.addPage(); 
                       yOffset = 20; 
-                      // Repeat section header on new page? Optional, but good for context.
-                      // Simplified header for continuation
-                      doc.setFontSize(8);
-                      doc.setTextColor(150, 150, 150);
-                      doc.text(`(Continuation: ${milestone.title})`, 15, yOffset - 5);
+                      if (isRTL) {
+                        addArabicTextToPdf(doc, `(تابع: ${milestone.title})`, 195, yOffset - 5, 8, false, "rgb(150, 150, 150)", "right", 180);
+                      } else {
+                        // Simplified header for continuation
+                        doc.setFontSize(8);
+                        doc.setTextColor(150, 150, 150);
+                        doc.text(`(Continuation: ${milestone.title})`, 15, yOffset - 5);
+                      }
                     }
                     
-                    // Item Name
-                    doc.setTextColor(0, 0, 0);
-                    doc.setFontSize(11);
-                    doc.setFont("helvetica", "bold");
-                    doc.text(item.name, 25, yOffset);
-                    
-                    // Category Badge (Right aligned)
-                    doc.setFillColor(240, 240, 240);
-                    doc.setDrawColor(200, 200, 200);
-                    doc.roundedRect(155, yOffset - 4, 40, 6, 2, 2, 'FD');
-                    doc.setTextColor(...themeColor);
-                    doc.setFontSize(7);
-                    doc.text(item.category.toUpperCase(), 175, yOffset, { align: 'center' });
-                    
-                    // Checkbox Icon (Visual - Empty for manual check)
-                    doc.setDrawColor(...themeColor);
-                    doc.setLineWidth(0.5);
-                    doc.rect(16, yOffset - 3, 4, 4);
-                    
-                    // Description
-                    yOffset += 5;
-                    doc.setTextColor(80, 80, 80);
-                    doc.setFontSize(9);
-                    doc.setFont("helvetica", "normal");
-                    doc.text(descLines, 25, yOffset);
-                    
-                    // Spacing for next item
-                    yOffset += (descLines.length * 4) + 8;
-                    
-                    // Light separator line
-                    doc.setDrawColor(230, 230, 230);
-                    doc.line(25, yOffset - 4, 195, yOffset - 4);
+                    if (isRTL) {
+                      // Checkbox
+                      doc.setDrawColor(...themeColor);
+                      doc.setLineWidth(0.5);
+                      doc.rect(191, yOffset - 3, 4, 4);
+
+                      // Category Text Box (Left side aligned)
+                      doc.setFillColor(240, 240, 240);
+                      doc.setDrawColor(200, 200, 200);
+                      doc.roundedRect(15, yOffset - 4, 40, 6, 2, 2, 'FD');
+                      addArabicTextToPdf(doc, item.category, 35, yOffset - 3, 7, true, "rgb(6, 78, 59)", "center", 40);
+
+                      // Product Title (Right side aligned)
+                      const titleHeight = addArabicTextToPdf(doc, item.name, 184, yOffset - 4, 11, true, "rgb(0, 0, 0)", "right", 120);
+                      yOffset += titleHeight + 2;
+
+                      // Product Description (Right side aligned)
+                      const descHeight = addArabicTextToPdf(doc, item.description, 184, yOffset, 9, false, "rgb(80, 80, 80)", "right", 165);
+                      yOffset += descHeight + 6;
+
+                      // Light separator line at bottom
+                      doc.setDrawColor(230, 230, 230);
+                      doc.line(15, yOffset - 4, 195, yOffset - 4);
+                    } else {
+                      // Item Name
+                      doc.setTextColor(0, 0, 0);
+                      doc.setFontSize(11);
+                      doc.setFont("helvetica", "bold");
+                      doc.text(item.name, 25, yOffset);
+                      
+                      // Category Badge (Right aligned)
+                      doc.setFillColor(240, 240, 240);
+                      doc.setDrawColor(200, 200, 200);
+                      doc.roundedRect(155, yOffset - 4, 40, 6, 2, 2, 'FD');
+                      doc.setTextColor(...themeColor);
+                      doc.setFontSize(7);
+                      doc.text(item.category.toUpperCase(), 175, yOffset, { align: 'center' });
+                      
+                      // Checkbox Icon (Visual - Empty for manual check)
+                      doc.setDrawColor(...themeColor);
+                      doc.setLineWidth(0.5);
+                      doc.rect(16, yOffset - 3, 4, 4);
+                      
+                      // Description
+                      yOffset += 5;
+                      doc.setTextColor(80, 80, 80);
+                      doc.setFontSize(9);
+                      doc.setFont("helvetica", "normal");
+                      const descLines = doc.splitTextToSize(item.description, 130);
+                      doc.text(descLines, 25, yOffset);
+                      
+                      // Spacing for next item
+                      yOffset += (descLines.length * 4) + 8;
+                      
+                      // Light separator line
+                      doc.setDrawColor(230, 230, 230);
+                      doc.line(25, yOffset - 4, 195, yOffset - 4);
+                    }
                  });
                  
                  yOffset += 5; // Extra gap after group
@@ -552,18 +784,25 @@ const App: React.FC = () => {
         for (let i = 1; i <= totalPages; i++) {
           doc.setPage(i);
           
-          // Footer Logo
-          const footerLogoHeight = 10;
-          const footerLogoWidth = footerLogoHeight * logoRatio;
-          doc.addImage(img, 'PNG', 15, 282, footerLogoWidth, footerLogoHeight);
+          if (isRTL) {
+            // Footer text items for Arabic page with Cairo matching
+            addArabicTextToPdf(doc, "مجموعة د. سليمان الحبيب الطبية", 105, 283, 8, true, "rgb(150, 150, 150)", "center", 100);
+            addArabicTextToPdf(doc, "رحلة رعاية الأم والطفل", 105, 287, 8, false, "rgb(150, 150, 150)", "center", 100);
+            addArabicTextToPdf(doc, `صفحة ${i} من ${totalPages}`, 195, 285, 8, false, "rgb(150, 150, 150)", "right", 40);
+          } else {
+            // Footer Logo
+            const footerLogoHeight = 10;
+            const footerLogoWidth = footerLogoHeight * logoRatio;
+            doc.addImage(img, 'PNG', 15, 282, footerLogoWidth, footerLogoHeight);
 
-          // Footer Text
-          doc.setFontSize(8);
-          doc.setTextColor(150, 150, 150);
-          doc.text("Dr. Sulaiman Al Habib Medical Group", 105, 286, { align: 'center' });
-          doc.text("Mom & Baby Journey Essentials", 105, 290, { align: 'center' });
-          
-          doc.text(`Page ${i} of ${totalPages}`, 195, 290, { align: 'right' });
+            // Footer Text
+            doc.setFontSize(8);
+            doc.setTextColor(150, 150, 150);
+            doc.text("Dr. Sulaiman Al Habib Medical Group", 105, 286, { align: 'center' });
+            doc.text("Mom & Baby Journey Essentials", 105, 290, { align: 'center' });
+            
+            doc.text(`Page ${i} of ${totalPages}`, 195, 290, { align: 'right' });
+          }
         }
         
         doc.save(`Al-Habib-Journey-${mobileNumber}.pdf`);
