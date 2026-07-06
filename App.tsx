@@ -45,6 +45,7 @@ const App: React.FC = () => {
   const [email, setEmail] = useState('');
   const [mrn, setMrn] = useState('');
   const [showError, setShowError] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Location / Geolocation state
   const [city, setCity] = useState<string>('');
@@ -107,6 +108,7 @@ const App: React.FC = () => {
       return;
     }
     setShowError(false);
+    setIsSaving(true);
 
     // Capture snapshot of current states BEFORE any potential race condition reset
     const leadSnapshot = {
@@ -121,13 +123,14 @@ const App: React.FC = () => {
       city: city || 'Riyadh'
     };
 
-    // Save lead IMMEDIATELY to guarantee capture
-    sendLeadToDatabase(leadSnapshot);
+    // Save lead first and wait for response before generating the PDF and resetting React state
+    await sendLeadToDatabase(leadSnapshot);
 
     generatePDFDownloadFlow();
+    setIsSaving(false);
   };
 
-  const sendLeadToDatabase = (snapshot: {
+  const sendLeadToDatabase = async (snapshot: {
     name: string | null;
     mobile_number: string;
     email: string | null;
@@ -155,42 +158,42 @@ const App: React.FC = () => {
           city: snapshot.city
         };
 
-        // Fire and forget without holding back the user flow - fully non-blocking!
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-        fetch(`${supabaseUrl}/rest/v1/leads`, {
-          method: 'POST',
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal' // Keep payload roundtrip small for instant execution
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        }).then(async (res) => {
+        try {
+          const res = await fetch(`${supabaseUrl}/rest/v1/leads`, {
+            method: 'POST',
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal' // Keep payload roundtrip small for instant execution
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
           clearTimeout(timeoutId);
           if (!res.ok) {
             const errDetails = await res.text();
             console.error(`Supabase Submission Failed (Status ${res.status}):`, errDetails);
             console.warn("Retrying submission with default database columns fallback...");
-            sendLeadToDatabaseFallback(snapshot);
+            await sendLeadToDatabaseFallback(snapshot);
           } else {
             console.log("Lead successfully stored in Supabase!");
           }
-        }).catch(err => {
+        } catch (err) {
           clearTimeout(timeoutId);
           console.error("Network error communicating with Supabase:", err);
-          sendLeadToDatabaseFallback(snapshot);
-        });
+          await sendLeadToDatabaseFallback(snapshot);
+        }
       } catch (e) {
         console.error("Database connection exception:", e);
       }
     }
   };
 
-  const sendLeadToDatabaseFallback = (snapshot: any) => {
+  const sendLeadToDatabaseFallback = async (snapshot: any) => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
     if (supabaseUrl && supabaseKey) {
@@ -208,17 +211,18 @@ const App: React.FC = () => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-        fetch(`${supabaseUrl}/rest/v1/leads`, {
-          method: 'POST',
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        }).then(async (res) => {
+        try {
+          const res = await fetch(`${supabaseUrl}/rest/v1/leads`, {
+            method: 'POST',
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal'
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
           clearTimeout(timeoutId);
           if (!res.ok) {
             const errDetails = await res.text();
@@ -226,10 +230,10 @@ const App: React.FC = () => {
           } else {
             console.log("Lead successfully stored in Supabase via fallback!");
           }
-        }).catch(err => {
+        } catch (err) {
           clearTimeout(timeoutId);
           console.error("Network error communicating with Supabase on fallback:", err);
-        });
+        }
       } catch (e) {
         console.error("Fallback database connection exception:", e);
       }
@@ -869,10 +873,23 @@ const App: React.FC = () => {
             </button>
             <button 
               onClick={downloadPDF} 
-              className={`flex items-center gap-2 px-6 py-3 bg-emerald text-white rounded-full font-bold text-xs uppercase tracking-widest hover:bg-emerald-dark transition-all shadow-xl shadow-emerald-900/20 whitespace-nowrap group`}
+              disabled={isSaving}
+              className={`flex items-center gap-2.5 px-6 py-3 bg-emerald text-white rounded-full font-bold text-xs uppercase tracking-widest hover:bg-emerald-dark transition-all shadow-xl shadow-emerald-900/20 whitespace-nowrap group ${isSaving ? 'opacity-85 pointer-events-none' : ''}`}
             >
-              <Printer size={18} className="group-hover:scale-110 transition-transform" />
-              <span>{t.exportList} ({selectedItems.size})</span>
+              {isSaving ? (
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <span className="animate-pulse tracking-widest">{lang === 'en' ? 'Saving & Exporting...' : 'جاري الحفظ والتصدير...'}</span>
+                </span>
+              ) : (
+                <>
+                  <Printer size={18} className="group-hover:scale-110 transition-transform" />
+                  <span>{`${t.exportList} (${selectedItems.size})`}</span>
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -1151,10 +1168,23 @@ const App: React.FC = () => {
                 <h3 className="text-4xl font-serif font-bold gold-gradient-text italic rtl:font-sans rtl:not-italic">{t.essentialsTitle}</h3>
                 <button
                   onClick={downloadPDF}
-                  className="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-full flex items-center gap-2.5 transition-all font-black text-xs uppercase tracking-widest shadow-lg shadow-red-600/10 whitespace-nowrap active:scale-95 shrink-0"
+                  disabled={isSaving}
+                  className={`bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-full flex items-center gap-2.5 transition-all font-black text-xs uppercase tracking-widest shadow-lg shadow-red-600/10 whitespace-nowrap active:scale-95 shrink-0 ${isSaving ? 'opacity-85 pointer-events-none' : ''}`}
                 >
-                  <Printer size={14} />
-                  <span>{t.exportList} ({selectedItems.size})</span>
+                  {isSaving ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      <span className="animate-pulse tracking-widest">{lang === 'en' ? 'Saving & Exporting...' : 'جاري الحفظ والتصدير...'}</span>
+                    </span>
+                  ) : (
+                    <>
+                      <Printer size={14} />
+                      <span>{`${t.exportList} (${selectedItems.size})`}</span>
+                    </>
+                  )}
                 </button>
               </div>
               <div className="bg-emerald text-white px-6 py-2 rounded-full flex items-center gap-3 shadow-lg shadow-emerald-900/10 border border-emerald-400/30 w-fit">

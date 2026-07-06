@@ -68,7 +68,7 @@ export const translations = {
     previousStage: "المرحلة السابقة",
     nextStage: "المرحلة التالية",
     clinicalInsight: "رؤية طبية",
-    expertTip: "نصيحة الخبراء والشركاء",
+    expertTip: "نصيحة الخبراء",
     essentialsTitle: "الأساسيات المختارة",
     productsAvailable: "منتج متوفر",
 
